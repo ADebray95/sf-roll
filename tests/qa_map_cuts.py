@@ -1,10 +1,18 @@
 """Record every loop transition and look for hard cuts in the map: a cut is
 one frame whose map pixels change far more than its neighbours'."""
 
-import functools, http.server, threading, os, glob, shutil, subprocess, sys
-from playwright.sync_api import sync_playwright
-from PIL import Image, ImageChops
+import functools
+import glob
+import http.server
+import os
+import shutil
+import subprocess
+import sys
+import threading
+
 import numpy as np
+from PIL import Image, ImageChops
+from playwright.sync_api import sync_playwright
 
 SP = (
     "/tmp/claude-0/-home-user-minihill/d254be37-1566-5bd0-97bf-17a3d00b2c7e/scratchpad/loops/cuts_"

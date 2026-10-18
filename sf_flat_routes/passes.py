@@ -38,8 +38,8 @@ import collections
 import numpy as np
 import pandas as pd
 
-from .config import OUTPUT_DIR
-from .utils import get_logger, step
+from sf_flat_routes.config import OUTPUT_DIR
+from sf_flat_routes.utils import get_logger, step
 
 log = get_logger("sf_flat_routes.passes")
 

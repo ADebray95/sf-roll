@@ -19,8 +19,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from .config import OUTPUT_DIR
-from .utils import get_logger, step
+from sf_flat_routes.config import OUTPUT_DIR
+from sf_flat_routes.utils import get_logger, step
 
 log = get_logger("sf_flat_routes.viz_static")
 
@@ -65,7 +65,7 @@ def _load_hillshade(downsample: int = 3, land_mask_geom=None):
     from rasterio.enums import Resampling
     from rasterio.features import rasterize
 
-    from .elevation import DEM_MOSAIC
+    from sf_flat_routes.elevation import DEM_MOSAIC
 
     with rasterio.open(DEM_MOSAIC) as src:
         h = src.height // downsample
@@ -371,8 +371,8 @@ def make_grade_map(edges, neighborhoods, mode: str = "walk"):
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    from matplotlib.colors import BoundaryNorm, LinearSegmentedColormap
     from matplotlib.cm import ScalarMappable
+    from matplotlib.colors import BoundaryNorm, LinearSegmentedColormap
 
     with step("rendering the citywide grade map", log):
         net = edges[edges[f"{mode}_ok"]].copy()

@@ -50,14 +50,14 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from .config import (
+from sf_flat_routes.config import (
     ELEVATION,
     GRADE_PERCENTILE,
     GRADE_THRESHOLDS,
     MIN_RELIABLE_GRADE_LENGTH_M,
     PROCESSED_DIR,
 )
-from .utils import get_logger, progress, step
+from sf_flat_routes.utils import get_logger, progress, step
 
 log = get_logger("sf_flat_routes.metrics")
 

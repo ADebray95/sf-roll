@@ -1,11 +1,15 @@
 """A manual-style pass over loop mode: every control, both directions, two viewports."""
 
-import functools, http.server, threading, sys, json
+import functools
+import http.server
+import json
+import sys
+import threading
+
 from playwright.sync_api import sync_playwright
 
 # the built site by default; "embed" serves the artifact body inside an
 # unsized wrapper div, the way an embedding host presents the page
-import os
 
 ROOT = "/home/user/minihill/site"
 if len(sys.argv) > 1 and sys.argv[1] == "embed":

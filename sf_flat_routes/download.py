@@ -21,9 +21,9 @@ from pathlib import Path
 import numpy as np
 import requests
 
-from . import sources
-from .config import RAW_DIR, SF_BBOX
-from .utils import configure_gdal_for_proxy, get_logger, human_bytes, progress, step
+from sf_flat_routes import sources
+from sf_flat_routes.config import RAW_DIR, SF_BBOX
+from sf_flat_routes.utils import configure_gdal_for_proxy, get_logger, human_bytes, progress, step
 
 log = get_logger("sf_flat_routes.download")
 
@@ -115,7 +115,7 @@ def _download_file(url: str, dest: Path, force: bool = False, retries: int = 5) 
                         fh.write(chunk)
                         written += len(chunk)
             if total and written < total:
-                raise IOError(f"short read: {written} of {total} bytes")
+                raise OSError(f"short read: {written} of {total} bytes")
             tmp.replace(dest)
             log.info("downloaded %s (%s)", dest.name, human_bytes(dest.stat().st_size))
             return dest

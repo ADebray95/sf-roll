@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-from .utils import configure_gdal_for_proxy, get_logger, step
+from sf_flat_routes.utils import configure_gdal_for_proxy, get_logger, step
 
 log = get_logger("sf_flat_routes.pipeline")
 
@@ -25,12 +25,12 @@ class Context:
 
 def build_context(modes=("walk", "bike"), force: bool = False) -> Context:
     """Load or build every prerequisite artefact."""
-    from .download import SEGMENTS_PARQUET
-    from .elevation import sample_edge_profiles
-    from .metrics import compute_edge_metrics
-    from .network import build_edges
-    from .neighborhoods import choose_representative_points, load_neighborhoods
-    from .routing import build_route_graph
+    from sf_flat_routes.download import SEGMENTS_PARQUET
+    from sf_flat_routes.elevation import sample_edge_profiles
+    from sf_flat_routes.metrics import compute_edge_metrics
+    from sf_flat_routes.neighborhoods import choose_representative_points, load_neighborhoods
+    from sf_flat_routes.network import build_edges
+    from sf_flat_routes.routing import build_route_graph
 
     configure_gdal_for_proxy()
     with step("preparing street network", log):
@@ -59,9 +59,9 @@ def build_context(modes=("walk", "bike"), force: bool = False) -> Context:
 
 def run_analysis(ctx: Context, force: bool = False):
     """Pair matrix, Pareto fronts, corridors, passes and barriers."""
-    from .corridors import run_corridor_analysis
-    from .pairs import run_pareto, run_pair_analysis
-    from .passes import run_pass_analysis
+    from sf_flat_routes.corridors import run_corridor_analysis
+    from sf_flat_routes.pairs import run_pair_analysis, run_pareto
+    from sf_flat_routes.passes import run_pass_analysis
 
     with step("neighborhood-pair routing", log):
         pairs, arc_store = run_pair_analysis(ctx.graphs, ctx.points, force=force)

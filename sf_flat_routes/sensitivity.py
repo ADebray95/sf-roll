@@ -28,8 +28,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from .config import ANALYSIS, DATA_DIR, ELEVATION, OUTPUT_DIR, PROJECT_ROOT
-from .utils import get_logger, step
+from sf_flat_routes.config import ANALYSIS, DATA_DIR, ELEVATION, OUTPUT_DIR, PROJECT_ROOT
+from sf_flat_routes.utils import get_logger, step
 
 log = get_logger("sf_flat_routes.sensitivity")
 
@@ -72,13 +72,14 @@ _DRIVABLE = ("residential", "tertiary", "secondary", "primary", "unclassified", 
 def summarize_current_run(tag: str) -> Path:
     """Write ``outputs/summary.json`` for the configuration now in force."""
     import geopandas as gpd
-    from .config import MIN_RELIABLE_GRADE_LENGTH_M
-    from .corridors import CORRIDORS_GPKG
-    from .pairs import PAIRS_PARQUET
-    from .passes import PASSES_GEOJSON
-    from .pipeline import build_context
-    from .utils import configure_gdal_for_proxy
-    from .validate import run_validation
+
+    from sf_flat_routes.config import MIN_RELIABLE_GRADE_LENGTH_M
+    from sf_flat_routes.corridors import CORRIDORS_GPKG
+    from sf_flat_routes.pairs import PAIRS_PARQUET
+    from sf_flat_routes.passes import PASSES_GEOJSON
+    from sf_flat_routes.pipeline import build_context
+    from sf_flat_routes.utils import configure_gdal_for_proxy
+    from sf_flat_routes.validate import run_validation
 
     configure_gdal_for_proxy()
     ctx = build_context()

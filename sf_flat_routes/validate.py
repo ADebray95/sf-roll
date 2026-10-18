@@ -25,8 +25,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from .config import MIN_RELIABLE_GRADE_LENGTH_M, OUTPUT_DIR
-from .utils import get_logger, step
+from sf_flat_routes.config import MIN_RELIABLE_GRADE_LENGTH_M, OUTPUT_DIR
+from sf_flat_routes.utils import get_logger, step
 
 log = get_logger("sf_flat_routes.validate")
 
@@ -105,8 +105,8 @@ def check_dem_agreement(n_points: int = 4000, seed: int = 0) -> pd.DataFrame:
     import rasterio
     from pyproj import Transformer
 
-    from .download import DEM_13_TIF
-    from .elevation import DEM_MOSAIC, DemSampler
+    from sf_flat_routes.download import DEM_13_TIF
+    from sf_flat_routes.elevation import DEM_MOSAIC, DemSampler
 
     if not DEM_13_TIF.exists():
         log.warning("1/3 arc-second DEM not cached; skipping cross-check")
@@ -192,8 +192,8 @@ def _window(edges, bbox):
     """Restrict an edge table to a WGS84 bounding box."""
     if bbox is None:
         return edges
-    from shapely.geometry import box
     from pyproj import Transformer
+    from shapely.geometry import box
 
     tr = Transformer.from_crs("EPSG:4326", edges.crs, always_xy=True)
     x0, y0 = tr.transform(bbox[0], bbox[2])
@@ -265,8 +265,8 @@ def _check_flat_route(label, spec, edges, corridors):
             "verdict": "not run",
             "discovered": False,
         }
-    from .config import ROUTING_PROFILES
-    from .routing import route
+    from sf_flat_routes.config import ROUTING_PROFILES
+    from sf_flat_routes.routing import route
 
     graph = ctx.graphs["bike"]
     (alon, alat), (blon, blat) = spec["route"]
@@ -343,8 +343,8 @@ def check_wiggle_route(ctx) -> dict:
     Mission/Duboce area to the Haight, and should *not* choose it when asked
     for the shortest route.
     """
-    from .routing import route
-    from .config import ROUTING_PROFILES
+    from sf_flat_routes.config import ROUTING_PROFILES
+    from sf_flat_routes.routing import route
 
     edges = ctx.edges
     graph = ctx.graphs["bike"]

@@ -11,8 +11,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from .config import FEATURED_PAIRS, OUTPUT_DIR, PROCESSED_DIR
-from .utils import get_logger
+from sf_flat_routes.config import FEATURED_PAIRS, OUTPUT_DIR, PROCESSED_DIR
+from sf_flat_routes.utils import get_logger
 
 log = get_logger("sf_flat_routes.report")
 
@@ -30,9 +30,10 @@ def _mi(m):
 
 def _load():
     import geopandas as gpd
-    from .corridors import CORRIDORS_GPKG
-    from .pairs import PAIRS_PARQUET, PARETO_PARQUET
-    from .passes import BARRIERS_GEOJSON, PASSES_GEOJSON
+
+    from sf_flat_routes.corridors import CORRIDORS_GPKG
+    from sf_flat_routes.pairs import PAIRS_PARQUET, PARETO_PARQUET
+    from sf_flat_routes.passes import BARRIERS_GEOJSON, PASSES_GEOJSON
 
     out = {
         "edges": gpd.read_parquet(PROCESSED_DIR / "edges_metrics.parquet"),

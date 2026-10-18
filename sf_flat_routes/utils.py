@@ -7,9 +7,10 @@ import logging
 import os
 import sys
 import time
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterable, Iterator, TypeVar
+from typing import TypeVar
 
 T = TypeVar("T")
 

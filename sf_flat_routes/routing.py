@@ -47,8 +47,8 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from .config import CostWeights, GRADE_THRESHOLDS, MODES
-from .utils import get_logger
+from sf_flat_routes.config import GRADE_THRESHOLDS, MODES, CostWeights
+from sf_flat_routes.utils import get_logger
 
 log = get_logger("sf_flat_routes.routing")
 

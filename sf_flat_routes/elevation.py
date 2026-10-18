@@ -46,9 +46,9 @@ from pathlib import Path
 
 import numpy as np
 
-from .config import CRS_PROJECTED, ELEVATION, PROCESSED_DIR, SF_BBOX
-from .download import DEM_DIR
-from .utils import get_logger, progress, step
+from sf_flat_routes.config import CRS_PROJECTED, ELEVATION, PROCESSED_DIR, SF_BBOX
+from sf_flat_routes.download import DEM_DIR
+from sf_flat_routes.utils import get_logger, progress, step
 
 log = get_logger("sf_flat_routes.elevation")
 
@@ -392,7 +392,7 @@ def sample_edge_profiles(
     # side of an intersection different elevations for the same corner, and
     # in San Francisco that happens every 80 m; the discontinuities then
     # propagate into the climbing figures.
-    from .metrics import contiguous_runs
+    from sf_flat_routes.metrics import contiguous_runs
 
     out_dist: list[np.ndarray] = [None] * len(edge_ids)
     out_elev: list[np.ndarray] = [None] * len(edge_ids)

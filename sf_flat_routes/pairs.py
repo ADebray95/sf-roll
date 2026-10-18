@@ -16,7 +16,7 @@ import pickle
 import numpy as np
 import pandas as pd
 
-from .config import (
+from sf_flat_routes.config import (
     GRADE_THRESHOLDS,
     OUTPUT_DIR,
     PARETO_LAMBDA_SWEEP,
@@ -24,8 +24,13 @@ from .config import (
     ROUTING_PROFILES,
     with_scale,
 )
-from .routing import RouteGraph, arcs_from_predecessors, shortest_paths, summarise_route
-from .utils import get_logger, progress, step
+from sf_flat_routes.routing import (
+    RouteGraph,
+    arcs_from_predecessors,
+    shortest_paths,
+    summarise_route,
+)
+from sf_flat_routes.utils import get_logger, progress, step
 
 log = get_logger("sf_flat_routes.pairs")
 

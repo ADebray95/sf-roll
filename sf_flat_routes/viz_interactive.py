@@ -26,8 +26,15 @@ from pathlib import Path
 
 import numpy as np
 
-from .config import OUTPUT_DIR, PRODUCT_NAME, REPO_URL, SITE_DIR, SITE_DOMAIN, SITE_URL
-from .utils import get_logger, human_bytes, step
+from sf_flat_routes.config import (
+    OUTPUT_DIR,
+    PRODUCT_NAME,
+    REPO_URL,
+    SITE_DIR,
+    SITE_DOMAIN,
+    SITE_URL,
+)
+from sf_flat_routes.utils import get_logger, human_bytes, step
 
 log = get_logger("sf_flat_routes.viz_interactive")
 
@@ -199,8 +206,9 @@ _EXAMPLE_PAIRS = (
 
 def _examples(points: dict) -> list[dict]:
     """Attach measured savings to each guided example."""
-    from .pairs import PAIRS_PARQUET
     import pandas as pd
+
+    from sf_flat_routes.pairs import PAIRS_PARQUET
 
     out = []
     table = None
@@ -371,9 +379,9 @@ def _write_route_page(ctx, graph: dict, pts: dict) -> Path:
     import hashlib
     import shutil
 
-    from .download import ADDRESSES_PARQUET, PLACES_PARQUET
-    from .places import build_addresses, build_hillshade, build_places
-    from .webgraph import bundle
+    from sf_flat_routes.download import ADDRESSES_PARQUET, PLACES_PARQUET
+    from sf_flat_routes.places import build_addresses, build_hillshade, build_places
+    from sf_flat_routes.webgraph import bundle
 
     strings = {"geom": graph["geom"]}
     arrays = dict(graph["arrays"])
@@ -476,7 +484,7 @@ def make_interactive_map(
     but are no longer needed: the map routes for itself rather than looking
     up precomputed answers.
     """
-    from .webgraph import build_payload, bundle
+    from sf_flat_routes.webgraph import build_payload, bundle
 
     with step("preparing interactive map layers", log):
         layers = build_layers(ctx, corridors, passes, barriers, basins)

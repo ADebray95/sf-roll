@@ -29,8 +29,8 @@ import pandas as pd
 from shapely.geometry import LineString
 from shapely.strtree import STRtree
 
-from .config import RAW_DIR
-from .utils import get_logger, step
+from sf_flat_routes.config import RAW_DIR
+from sf_flat_routes.utils import get_logger, step
 
 log = get_logger("sf_flat_routes.bikeways")
 

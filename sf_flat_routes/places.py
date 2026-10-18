@@ -33,9 +33,9 @@ import re
 import numpy as np
 import pandas as pd
 
-from .config import PROCESSED_DIR, SF_BBOX
-from .download import ADDRESSES_PARQUET, BASE_PARQUETS, PLACES_PARQUET
-from .utils import get_logger, step
+from sf_flat_routes.config import PROCESSED_DIR, SF_BBOX
+from sf_flat_routes.download import ADDRESSES_PARQUET, BASE_PARQUETS, PLACES_PARQUET
+from sf_flat_routes.utils import get_logger, step
 
 log = get_logger("sf_flat_routes.places")
 
@@ -537,8 +537,8 @@ def build_hillshade(width_px: int = 1600) -> dict:
     from rasterio.enums import Resampling
     from rasterio.warp import calculate_default_transform, reproject
 
-    from .elevation import DEM_MOSAIC
-    from .viz_static import hillshade
+    from sf_flat_routes.elevation import DEM_MOSAIC
+    from sf_flat_routes.viz_static import hillshade
 
     with step("rendering the hillshade base", log):
         with rasterio.open(DEM_MOSAIC) as src:

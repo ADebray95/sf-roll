@@ -30,9 +30,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from .config import ANALYSIS, CRS_PROJECTED, EXCLUDED_NEIGHBORHOODS, PROCESSED_DIR
-from .download import NEIGHBORHOODS_GEOJSON
-from .utils import get_logger, step
+from sf_flat_routes.config import ANALYSIS, CRS_PROJECTED, EXCLUDED_NEIGHBORHOODS, PROCESSED_DIR
+from sf_flat_routes.download import NEIGHBORHOODS_GEOJSON
+from sf_flat_routes.utils import get_logger, step
 
 log = get_logger("sf_flat_routes.neighborhoods")
 

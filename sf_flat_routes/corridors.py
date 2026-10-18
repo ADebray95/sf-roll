@@ -58,8 +58,8 @@ import collections
 import numpy as np
 import pandas as pd
 
-from .config import ANALYSIS, OUTPUT_DIR, PROCESSED_DIR
-from .utils import get_logger, progress, step
+from sf_flat_routes.config import ANALYSIS, OUTPUT_DIR, PROCESSED_DIR
+from sf_flat_routes.utils import get_logger, progress, step
 
 log = get_logger("sf_flat_routes.corridors")
 

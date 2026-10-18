@@ -33,7 +33,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from .config import (
+from sf_flat_routes.config import (
     BIKE_FORBIDDEN_CLASSES,
     CRS_GEOGRAPHIC,
     CRS_PROJECTED,
@@ -42,7 +42,7 @@ from .config import (
     NEVER_ROUTABLE_SUBCLASSES,
     PROCESSED_DIR,
 )
-from .utils import get_logger, progress, step
+from sf_flat_routes.utils import get_logger, progress, step
 
 log = get_logger("sf_flat_routes.network")
 
@@ -270,7 +270,7 @@ def _split_geometries(df: pd.DataFrame):
 
 def build_edges(
     segments_path: Path, force: bool = False, clip_to_city: bool = True
-) -> "pd.DataFrame":
+) -> pd.DataFrame:
     """Produce the undirected edge table with geometry, class and access.
 
     The Overture extract covers a bounding box, which also catches the Marin
@@ -298,7 +298,7 @@ def build_edges(
     log.info("  %d edges after dropping sub-metre slivers", len(gdf))
 
     if clip_to_city:
-        from .neighborhoods import city_boundary
+        from sf_flat_routes.neighborhoods import city_boundary
 
         with step("clipping network to the San Francisco city boundary", log):
             boundary = city_boundary(buffer_m=250.0)

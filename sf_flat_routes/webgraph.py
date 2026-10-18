@@ -43,9 +43,10 @@ import gzip
 import numpy as np
 import pandas as pd
 
-from .bikeways import BIKEWAYS_GEOJSON, conflate, stress as bike_stress
-from .config import GRADE_THRESHOLDS, MODES, ROUTING_PROFILES
-from .utils import get_logger, step
+from sf_flat_routes.bikeways import BIKEWAYS_GEOJSON, conflate
+from sf_flat_routes.bikeways import stress as bike_stress
+from sf_flat_routes.config import GRADE_THRESHOLDS, MODES, ROUTING_PROFILES
+from sf_flat_routes.utils import get_logger, step
 
 log = get_logger("sf_flat_routes.webgraph")
 

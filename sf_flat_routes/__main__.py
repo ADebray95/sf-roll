@@ -19,8 +19,8 @@ from __future__ import annotations
 import argparse
 import sys
 
-from . import sources
-from .utils import get_logger, setup_logging, step
+from sf_flat_routes import sources
+from sf_flat_routes.utils import get_logger, setup_logging, step
 
 log = get_logger("sf_flat_routes")
 
@@ -80,14 +80,14 @@ def cmd_sources(_args) -> int:
 
 
 def cmd_download(args) -> int:
-    from .download import download_all
+    from sf_flat_routes.download import download_all
 
     download_all(force=args.force)
     return 0
 
 
 def cmd_build_network(args) -> int:
-    from .pipeline import build_context
+    from sf_flat_routes.pipeline import build_context
 
     ctx = build_context(force=args.force)
     log.info(
@@ -100,7 +100,7 @@ def cmd_build_network(args) -> int:
 
 
 def cmd_analyze(args) -> int:
-    from .pipeline import build_context, run_analysis
+    from sf_flat_routes.pipeline import build_context, run_analysis
 
     ctx = build_context()
     res = run_analysis(ctx, force=args.force)
@@ -116,9 +116,10 @@ def cmd_analyze(args) -> int:
 
 def cmd_validate(args) -> int:
     import geopandas as gpd
-    from .corridors import CORRIDORS_GPKG
-    from .pipeline import build_context
-    from .validate import VALIDATION_MD, run_validation
+
+    from sf_flat_routes.corridors import CORRIDORS_GPKG
+    from sf_flat_routes.pipeline import build_context
+    from sf_flat_routes.validate import VALIDATION_MD, run_validation
 
     ctx = build_context()
     cor = gpd.read_file(CORRIDORS_GPKG) if CORRIDORS_GPKG.exists() else None
@@ -129,11 +130,12 @@ def cmd_validate(args) -> int:
 
 def cmd_map(args) -> int:
     import geopandas as gpd
-    from .corridors import CORRIDORS_GPKG
-    from .passes import BARRIERS_GEOJSON, BASINS_GEOJSON, PASSES_GEOJSON
-    from .pipeline import build_context
-    from .viz_interactive import make_interactive_map
-    from .viz_static import make_backbone_map, make_grade_map
+
+    from sf_flat_routes.corridors import CORRIDORS_GPKG
+    from sf_flat_routes.passes import BARRIERS_GEOJSON, BASINS_GEOJSON, PASSES_GEOJSON
+    from sf_flat_routes.pipeline import build_context
+    from sf_flat_routes.viz_interactive import make_interactive_map
+    from sf_flat_routes.viz_static import make_backbone_map, make_grade_map
 
     ctx = build_context()
     cor = gpd.read_file(CORRIDORS_GPKG)
@@ -150,7 +152,7 @@ def cmd_map(args) -> int:
 
 
 def cmd_report(args) -> int:
-    from .report import write_report
+    from sf_flat_routes.report import write_report
 
     path = write_report()
     log.info("wrote %s", path)
@@ -158,9 +160,9 @@ def cmd_report(args) -> int:
 
 
 def cmd_route(args) -> int:
-    from .config import ROUTING_PROFILES
-    from .pipeline import build_context
-    from .routing import route
+    from sf_flat_routes.config import ROUTING_PROFILES
+    from sf_flat_routes.pipeline import build_context
+    from sf_flat_routes.routing import route
 
     ctx = build_context()
     graph = ctx.graphs[args.mode]
@@ -199,7 +201,7 @@ def cmd_route(args) -> int:
 
 
 def cmd_sensitivity(args) -> int:
-    from .sensitivity import SENS_MD, run_sensitivity
+    from sf_flat_routes.sensitivity import SENS_MD, run_sensitivity
 
     run_sensitivity(force=args.force, only=args.only)
     print(SENS_MD.read_text())
@@ -207,7 +209,7 @@ def cmd_sensitivity(args) -> int:
 
 
 def cmd_summarize(args) -> int:
-    from .sensitivity import summarize_current_run
+    from sf_flat_routes.sensitivity import summarize_current_run
 
     summarize_current_run(args.tag)
     return 0
