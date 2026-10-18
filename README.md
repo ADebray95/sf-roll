@@ -9,7 +9,7 @@ climbing as little as possible.
 
 ![San Francisco's low-elevation backbone](outputs/sf_flat_backbone.png)
 
-San Francisco is famously hilly, but it is hilly in a *structured* way. Its
+San Francisco is famously hilly, but it is hilly in a _structured_ way. Its
 hills are separated by valleys, saddles and old dune flats, and those low
 places join up into a network that is far more continuous than the city's
 reputation suggests. This project models that network from authoritative
@@ -58,13 +58,13 @@ a block of the way out, and optionally an out-and-back in each direction
 Loops that double back on themselves without being an out-and-back, or
 are too thin to be a loop, are dropped, and the flattest of the rest is shown,
 with how much less it climbs than a typical loop of the same length from
-the same start. Out-and-backs are left out unless *Allow out and back*
+the same start. Out-and-backs are left out unless _Allow out and back_
 is ticked; with it they win more often than not (the Embarcadero, the
 Marina, the Great Highway).
 
-**GPX** (next to *Copy link*) downloads the route on show as a GPX track
+**GPX** (next to _Copy link_) downloads the route on show as a GPX track
 with elevation, which Strava's route builder, Garmin Connect, Komoot and
-most running apps import. The *mi / km* switch at the top of the card
+most running apps import. The _mi / km_ switch at the top of the card
 picks the units; the choice is kept on the device. The search takes well under a second; up to about 20
 miles it finds a loop from anywhere in the city, beyond that the city
 runs out.
@@ -111,7 +111,7 @@ The map can also redraw the city so that distance on the page means
 apart; places joined by a flat corridor pull together. Twin Peaks drifts
 almost 5 km from where it sits, West of Twin Peaks 3 km, Glen Park 2 km, while
 Bernal Heights and Nob Hill barely move: they are hilly, but they are hilly
-*next to* the flats.
+_next to_ the flats.
 
 The deformation is driven by the same cost model as the routes, with one
 knob: how many metres of walking a metre of climb is worth. At λ = 0 the
@@ -136,26 +136,26 @@ the construction here are different.
 
 ## What it produces
 
-| Output | What it is |
-|---|---|
-| [`outputs/sf_flat_route_finder.html`](outputs/sf_flat_route_finder.html) | The route finder: origin, destination, walk or bike, and a slider from the shortest route to the flattest, with offline place search. Self-contained — Leaflet, the whole 160,000-arc graph, the place index and a lidar hillshade are embedded. This is the page to share. |
-| [`site/`](site/) | The route finder as a static site (the same page with the graph and hillshade as separate cacheable files), deployed to GitHub Pages by `.github/workflows/pages.yml`. |
-| [`outputs/sf_flat_routes_map.html`](outputs/sf_flat_routes_map.html) | The explorer: every analysis layer, the four objectives with live α/β/γ sliders, Pareto readout and the warped city. Routes in the browser over the same graph. |
-| [`outputs/sf_flat_backbone.png`](outputs/sf_flat_backbone.png) / `.pdf` | Publication-quality static map of the low-elevation backbone, over a hillshade computed from the same lidar the analysis uses. |
-| [`outputs/sf_street_grades.png`](outputs/sf_street_grades.png) | Citywide street-gradient map. |
-| [`outputs/screenshot_route_finder.png`](outputs/screenshot_route_finder.png), [`screenshot_interactive.png`](outputs/screenshot_interactive.png) | Screenshots of the two pages, for anywhere the HTML cannot be rendered. |
-| [`outputs/screenshot_warped.png`](outputs/screenshot_warped.png) | Screenshot of the city warped by climbing cost. |
-| [`outputs/findings.md`](outputs/findings.md) | Written analysis of the major findings. Every figure is generated from the outputs, not typed in. |
-| [`outputs/validation_report.md`](outputs/validation_report.md) | Validation against an independent DEM, documented street gradients and known flat corridors. |
-| `outputs/flat_corridors.geojson` / `.gpkg` / `.csv` | The discovered low-elevation corridors: street names, endpoints in lon/lat, neighborhoods connected, length, elevation range, gradient and importance metrics. |
-| `outputs/neighborhood_pairs.csv` | 10,080 routes: every ordered neighborhood pair × 4 objectives × 2 modes, with full metrics. |
-| `outputs/pareto_frontier.csv` | Distance / climbing / peak-gradient trade-off frontiers for every ordered pair. |
-| [`outputs/sensitivity.md`](outputs/sensitivity.md) / `.csv` | Every finding recomputed under ten perturbations of the elevation parameters and access points. |
-| `outputs/passes.geojson` / `.csv`, `outputs/pass_matrix.csv` | Critical passes, and the lowest possible crossing elevation for every neighborhood pair. |
-| `outputs/barriers.geojson` / `.csv` | Steep streets that inter-neighborhood traffic cannot avoid. |
-| `outputs/lowland_basins.geojson` | The city's flat districts, delineated below 15 m. |
-| `data/processed/sf_street_network.gpkg` | Processed street network as a GeoPackage, ready to open in QGIS or ArcGIS: 87,776 edges with gradient, climbing and access attributes. |
-| `data/processed/edges_metrics.parquet`, `edges_directed.parquet` | The same network as Parquet, plus the full per-direction metric table (175,552 directed edges). |
+| Output                                                                                                                                           | What it is                                                                                                                                                                                                                                                                  |
+| ------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`outputs/sf_flat_route_finder.html`](outputs/sf_flat_route_finder.html)                                                                         | The route finder: origin, destination, walk or bike, and a slider from the shortest route to the flattest, with offline place search. Self-contained — Leaflet, the whole 160,000-arc graph, the place index and a lidar hillshade are embedded. This is the page to share. |
+| [`site/`](site/)                                                                                                                                 | The route finder as a static site (the same page with the graph and hillshade as separate cacheable files), deployed to GitHub Pages by `.github/workflows/pages.yml`.                                                                                                      |
+| [`outputs/sf_flat_routes_map.html`](outputs/sf_flat_routes_map.html)                                                                             | The explorer: every analysis layer, the four objectives with live α/β/γ sliders, Pareto readout and the warped city. Routes in the browser over the same graph.                                                                                                             |
+| [`outputs/sf_flat_backbone.png`](outputs/sf_flat_backbone.png) / `.pdf`                                                                          | Publication-quality static map of the low-elevation backbone, over a hillshade computed from the same lidar the analysis uses.                                                                                                                                              |
+| [`outputs/sf_street_grades.png`](outputs/sf_street_grades.png)                                                                                   | Citywide street-gradient map.                                                                                                                                                                                                                                               |
+| [`outputs/screenshot_route_finder.png`](outputs/screenshot_route_finder.png), [`screenshot_interactive.png`](outputs/screenshot_interactive.png) | Screenshots of the two pages, for anywhere the HTML cannot be rendered.                                                                                                                                                                                                     |
+| [`outputs/screenshot_warped.png`](outputs/screenshot_warped.png)                                                                                 | Screenshot of the city warped by climbing cost.                                                                                                                                                                                                                             |
+| [`outputs/findings.md`](outputs/findings.md)                                                                                                     | Written analysis of the major findings. Every figure is generated from the outputs, not typed in.                                                                                                                                                                           |
+| [`outputs/validation_report.md`](outputs/validation_report.md)                                                                                   | Validation against an independent DEM, documented street gradients and known flat corridors.                                                                                                                                                                                |
+| `outputs/flat_corridors.geojson` / `.gpkg` / `.csv`                                                                                              | The discovered low-elevation corridors: street names, endpoints in lon/lat, neighborhoods connected, length, elevation range, gradient and importance metrics.                                                                                                              |
+| `outputs/neighborhood_pairs.csv`                                                                                                                 | 10,080 routes: every ordered neighborhood pair × 4 objectives × 2 modes, with full metrics.                                                                                                                                                                                 |
+| `outputs/pareto_frontier.csv`                                                                                                                    | Distance / climbing / peak-gradient trade-off frontiers for every ordered pair.                                                                                                                                                                                             |
+| [`outputs/sensitivity.md`](outputs/sensitivity.md) / `.csv`                                                                                      | Every finding recomputed under ten perturbations of the elevation parameters and access points.                                                                                                                                                                             |
+| `outputs/passes.geojson` / `.csv`, `outputs/pass_matrix.csv`                                                                                     | Critical passes, and the lowest possible crossing elevation for every neighborhood pair.                                                                                                                                                                                    |
+| `outputs/barriers.geojson` / `.csv`                                                                                                              | Steep streets that inter-neighborhood traffic cannot avoid.                                                                                                                                                                                                                 |
+| `outputs/lowland_basins.geojson`                                                                                                                 | The city's flat districts, delineated below 15 m.                                                                                                                                                                                                                           |
+| `data/processed/sf_street_network.gpkg`                                                                                                          | Processed street network as a GeoPackage, ready to open in QGIS or ArcGIS: 87,776 edges with gradient, climbing and access attributes.                                                                                                                                      |
+| `data/processed/edges_metrics.parquet`, `edges_directed.parquet`                                                                                 | The same network as Parquet, plus the full per-direction metric table (175,552 directed edges).                                                                                                                                                                             |
 
 ## Headline findings
 
@@ -177,7 +177,7 @@ the construction here are different.
   Drive (635 ft). These neighborhoods are the ones the flat network cannot
   reach.
 - **Total climbing and peak steepness are different objectives.** The
-  grade-averse route climbs *more* in total than the flattest route (325 ft
+  grade-averse route climbs _more_ in total than the flattest route (325 ft
   vs 281 ft) while holding the steepest pitch to 10.8% instead of 17.2%. No
   single definition of "flat" serves both.
 
@@ -203,27 +203,27 @@ Elevation accuracy drives everything else, so the method is deliberate.
    against 37% — while sampling at 5 m returns 41.4% and 36.9% respectively
    before smoothing.
 4. **Structures.** Where an edge is flagged `is_bridge` or `is_tunnel` the DEM
-   describes the ground or water *under* the deck. Such edges get a linear
+   describes the ground or water _under_ the deck. Such edges get a linear
    ramp between their endpoints; endpoints that are themselves unreliable
    (mid-viaduct nodes) are recovered by solving a discrete Laplace problem
    over the structure sub-graph with the reliable nodes as boundary
    conditions — the deck is modelled as the smoothest ramp consistent with
    where it meets the ground.
 5. **Smoothing per street segment, not per edge.** A Savitzky–Golay filter
-   (order 2, ~50 m window) is applied to the *concatenated* profile of each
+   (order 2, ~50 m window) is applied to the _concatenated_ profile of each
    contiguous run of a street segment. Smoothing edges in isolation gave the
    two edges either side of an intersection different elevations for the same
    corner, and in San Francisco that happens every 80 m.
 6. **One elevation per intersection.** Each node is reconciled to a single
    elevation and every profile is rubber-sheeted onto it with a linear
-   correction (0.02 m on average). This makes per-edge climbing sum *exactly*
+   correction (0.02 m on average). This makes per-edge climbing sum _exactly_
    to the difference between a route's endpoints.
 7. **Dead-band on cumulative gain.** Cumulative gain and loss are computed
    after pruning every elevation reversal smaller than 0.5 m. Pruning
    replaces a run by its **monotone envelope** clamped to the run's
    endpoints, so an oscillation below the dead-band contributes no gain at
-   all, while a genuine sustained climb is preserved to the millimetre *and
-   the shape within the run is preserved* — which is what makes per-edge
+   all, while a genuine sustained climb is preserved to the millimetre _and
+   the shape within the run is preserved_ — which is what makes per-edge
    figures additive along a route.
 
 The last two points matter more than they sound. Two earlier
@@ -240,7 +240,7 @@ rectifier redistributed climbing within a segment with errors reaching 51 m.
 - Against documented street gradients: 6 of 8 within 5 percentage points
   (Filbert 32.9% vs 31.5%, 22nd Street 32.6% vs 31.5%, Jones 31.1% vs 29.0%,
   Prentiss 32.9% vs 37%, Baden 34.5% vs 32%, Duboce 28.8% vs 27.5%). Of the
-  two that miss, Nevada Street is a *classification* issue — its published
+  two that miss, Nevada Street is a _classification_ issue — its published
   35% pitch is tagged `steps` in OpenStreetMap and measures 34.6% as a
   stairway — and Bradford Street is smoothing attenuation, discussed under
   Limitations. The model was not changed to fit either.
@@ -294,7 +294,7 @@ data rather than assumed:
 
 - `trunk` includes **Van Ness Avenue, 19th Avenue, Lombard Street and part of
   Mission Street** — ordinary surface streets with sidewalks. `trunk`
-  therefore *cannot* be excluded from walking or cycling.
+  therefore _cannot_ be excluded from walking or cycling.
 - `motorway` is true grade-separated freeway and is excluded.
 - `steps` (2,652 edges, 35 km) is a real part of the pedestrian network and is
   **excluded outright for bicycles**. A route suitable for a pedestrian is
@@ -329,12 +329,12 @@ test suite.
 
 Four objectives, all configured in [`sf_flat_routes/config.py`](sf_flat_routes/config.py):
 
-| Objective | α | β | γ | Intent |
-|---|---|---|---|---|
-| `shortest` | 0 | 0 | 0 | distance only (comfort multipliers off, so it is a true baseline) |
-| `min_climb` | 120 | 0 | 0 | near-lexicographic preference for avoiding ascent |
-| `grade_averse` | 4 | 12 | 6 | steep *segments* dominate; total ascent secondary |
-| `balanced` | 14 | 2 | 2 | flat but without absurd detours |
+| Objective      | α   | β   | γ   | Intent                                                            |
+| -------------- | --- | --- | --- | ----------------------------------------------------------------- |
+| `shortest`     | 0   | 0   | 0   | distance only (comfort multipliers off, so it is a true baseline) |
+| `min_climb`    | 120 | 0   | 0   | near-lexicographic preference for avoiding ascent                 |
+| `grade_averse` | 4   | 12  | 6   | steep _segments_ dominate; total ascent secondary                 |
+| `balanced`     | 14  | 2   | 2   | flat but without absurd detours                                   |
 
 Bicycle costs additionally carry stress weights (protected cycleway 0.85,
 19th Avenue and Van Ness 1.9) and respect one-way restrictions. These are
@@ -346,7 +346,7 @@ the SFMTA facility class of each block
 
 ### Corridor detection
 
-A street earns corridor status by being *used*, repeatedly, by good flat
+A street earns corridor status by being _used_, repeatedly, by good flat
 routes between different parts of the city, and by saving climbing when used.
 For each edge the analysis accumulates, over every ordered neighborhood pair
 and every climb-averse objective: the number of distinct pairs served, the
@@ -354,7 +354,7 @@ number of distinct neighborhoods at either end (which separates a citywide
 corridor from a street busy between one pair of districts), and the climbing
 avoided versus the shortest path, apportioned by the edge's share of route
 length. Edges whose own gradient disqualifies them as flat are excluded
-regardless of usage, so the unavoidable climbs *out* of a corridor do not get
+regardless of usage, so the unavoidable climbs _out_ of a corridor do not get
 absorbed into it. Contiguous high-scoring edges are then merged, short gaps
 are closed, and the result is labelled by its constituent street names.
 
@@ -363,7 +363,7 @@ are closed, and the result is labelled by its constituent street names.
 Both pages ship the graph, not a set of answers. Earlier it carried
 ~10,000 precomputed routes, which meant it could only speak about the 36
 neighborhood access points; embedding the graph itself turned out to be both
-*smaller* and far more useful.
+_smaller_ and far more useful.
 
 The packing is in [`sf_flat_routes/webgraph.py`](sf_flat_routes/webgraph.py):
 69,864 nodes, 161,176 directed arcs, 87,776 edge geometries and the vector
@@ -389,7 +389,7 @@ individual Leaflet polylines would not have been usable; one canvas pass is.
 The route finder's slider is a **family of routes**: the whole frontier of
 distance against climbing between the two points, every route that no
 other route beats on both counts, sorted from shortest to flattest. The
-first version swept a weighted sum, *length + α × climbing*, over values
+first version swept a weighted sum, _length + α × climbing_, over values
 of α. That finds only the frontier's convex hull: a route that is a good
 compromise but sits in a dent of the curve never wins for any α, and on
 some trips the dent holds most of the interesting routes (California &
@@ -436,7 +436,7 @@ pass_height(s,t) = min over paths P from s to t of ( max elevation on P )
 This has an exact solution. Sorting every edge by its crest and adding edges
 to a union-find structure in increasing crest order builds a minimum
 bottleneck spanning tree; the crest of the edge that first connects `s` to
-`t` *is* `pass_height(s,t)`, and the lowest common ancestor in the resulting
+`t` _is_ `pass_height(s,t)`, and the lowest common ancestor in the resulting
 merge tree answers every pair from one construction. The result was checked
 against the routing: the maximum elevation reached on the minimum-climbing
 route is at or above the computed pass height for **all 1,260 pairs, with
@@ -465,17 +465,17 @@ All URLs verified 2026-09-16 (the three search-only Overture themes on
 2026-10-04). `python -m sf_flat_routes sources` prints the full table with
 limitations.
 
-| Dataset | Publisher | Resolution / vintage | Licence | Role |
-|---|---|---|---|---|
-| Overture Maps transportation segments & connectors, release `2026-08-19.0` | Overture Maps Foundation (derived from OpenStreetMap) | Vector; OSM-equivalent accuracy (~1–5 m) | ODbL 1.0; schema CDLA-Permissive 2.0 | Routable street network: geometry, class, per-mode access, bridge/tunnel flags, topology |
-| USGS 3DEP 1 m bare-earth DEM, project `CA_SanFrancisco_B23` | USGS 3D Elevation Program | 1 m GSD, EPSG:26910, metres above NAVD88 | Public domain | Primary elevation source |
-| USGS 3DEP 1/3 arc-second DEM, tile `n38w123` | USGS 3D Elevation Program | ~10 m, EPSG:4269 | Public domain | Independent cross-check only |
-| San Francisco neighborhoods (37-unit planning set) | SF Planning / DataSF, mirrored by Code for America | 37 polygons | Open data | Neighborhood boundaries |
-| SFMTA Bike Network, linear features | SFMTA via DataSF (downloaded by hand 2026-10-05) | 5,457 centreline segments with facility class I–IV, buffering, barrier type | Open data (CCSF) | Route finder: bike comfort weighting (`bikeways.py`) |
-| Bicycle facilities / low-stress streets | Derived from Overture/OSM attributes | Vector | ODbL 1.0 | Explorer bicycle overlay (see limitations) |
-| Overture Maps base theme (land use, infrastructure, land), release `2026-08-19.0` | Overture Maps Foundation (derived from OpenStreetMap) | Mapped outlines and points | ODbL 1.0 | Route finder search only: parks, schools, stations, piers, peaks, beaches |
-| Overture Maps places, release `2026-08-19.0` | Overture Maps Foundation (Meta / Microsoft POI data) | Points with names, categories, confidence | CDLA-Permissive 2.0 | Route finder search only: landmarks, shops, cafes (noisy; see `places.py`) |
-| Overture Maps addresses, release `2026-08-19.0` | Overture Maps Foundation (OpenAddresses / City of San Francisco) | Address points | Open (public domain source) | Route finder search only: street addresses |
+| Dataset                                                                           | Publisher                                                        | Resolution / vintage                                                        | Licence                              | Role                                                                                     |
+| --------------------------------------------------------------------------------- | ---------------------------------------------------------------- | --------------------------------------------------------------------------- | ------------------------------------ | ---------------------------------------------------------------------------------------- |
+| Overture Maps transportation segments & connectors, release `2026-08-19.0`        | Overture Maps Foundation (derived from OpenStreetMap)            | Vector; OSM-equivalent accuracy (~1–5 m)                                    | ODbL 1.0; schema CDLA-Permissive 2.0 | Routable street network: geometry, class, per-mode access, bridge/tunnel flags, topology |
+| USGS 3DEP 1 m bare-earth DEM, project `CA_SanFrancisco_B23`                       | USGS 3D Elevation Program                                        | 1 m GSD, EPSG:26910, metres above NAVD88                                    | Public domain                        | Primary elevation source                                                                 |
+| USGS 3DEP 1/3 arc-second DEM, tile `n38w123`                                      | USGS 3D Elevation Program                                        | ~10 m, EPSG:4269                                                            | Public domain                        | Independent cross-check only                                                             |
+| San Francisco neighborhoods (37-unit planning set)                                | SF Planning / DataSF, mirrored by Code for America               | 37 polygons                                                                 | Open data                            | Neighborhood boundaries                                                                  |
+| SFMTA Bike Network, linear features                                               | SFMTA via DataSF (downloaded by hand 2026-10-05)                 | 5,457 centreline segments with facility class I–IV, buffering, barrier type | Open data (CCSF)                     | Route finder: bike comfort weighting (`bikeways.py`)                                     |
+| Bicycle facilities / low-stress streets                                           | Derived from Overture/OSM attributes                             | Vector                                                                      | ODbL 1.0                             | Explorer bicycle overlay (see limitations)                                               |
+| Overture Maps base theme (land use, infrastructure, land), release `2026-08-19.0` | Overture Maps Foundation (derived from OpenStreetMap)            | Mapped outlines and points                                                  | ODbL 1.0                             | Route finder search only: parks, schools, stations, piers, peaks, beaches                |
+| Overture Maps places, release `2026-08-19.0`                                      | Overture Maps Foundation (Meta / Microsoft POI data)             | Points with names, categories, confidence                                   | CDLA-Permissive 2.0                  | Route finder search only: landmarks, shops, cafes (noisy; see `places.py`)               |
+| Overture Maps addresses, release `2026-08-19.0`                                   | Overture Maps Foundation (OpenAddresses / City of San Francisco) | Address points                                                              | Open (public domain source)          | Route finder search only: street addresses                                               |
 
 ### Two substitutions, and why
 
@@ -483,7 +483,7 @@ limitations.
 network egress policy**, so two datasets could not be fetched from their
 authoritative source by the pipeline:
 
-1. **Neighborhood boundaries.** The official 41-unit *Analysis Neighborhoods*
+1. **Neighborhood boundaries.** The official 41-unit _Analysis Neighborhoods_
    product could not be downloaded. This project uses the long-standing
    37-unit San Francisco planning neighborhood set via the Code for America
    `click_that_hood` mirror — a real, widely used SF boundary set whose union
@@ -707,7 +707,7 @@ Beyond the two dataset substitutions above:
   the edge, and 33.1% as the pipeline computes it (smoothed across whole
   segments and reconciled at intersections). The trade is deliberate: with
   less smoothing, lidar artefacts pushed 22nd Street and Baden Street to the
-  60% plausibility ceiling. For a project about *flat* routes, clipping the
+  60% plausibility ceiling. For a project about _flat_ routes, clipping the
   peak of a 41% wall is a much cheaper error than inventing gradient on flat
   ground.
 - **The place search is only as good as its sources.** Intersections and
