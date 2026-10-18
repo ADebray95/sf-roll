@@ -17,6 +17,7 @@ like 1.4 blocks.  It is a comfort scale, not a speed model, and it only ever
 applies to the distance objective in bike mode when the rider asks for calm
 streets, so the climbing axis of the frontier is untouched.
 """
+
 from __future__ import annotations
 
 import json
@@ -28,8 +29,8 @@ import pandas as pd
 from shapely.geometry import LineString
 from shapely.strtree import STRtree
 
-from .config import RAW_DIR
-from .utils import get_logger, step
+from sf_flat_routes.config import RAW_DIR
+from sf_flat_routes.utils import get_logger, step
 
 log = get_logger("sf_flat_routes.bikeways")
 
@@ -48,16 +49,31 @@ _RANK = {f: i for i, f in enumerate(FACILITIES)}
 
 #: comfort multiplier by road class when there is no bikeway on the street
 CLASS_STRESS = {
-    "cycleway": 0.8, "living_street": 0.9, "path": 1.0, "residential": 1.0,
-    "unclassified": 1.0, "track": 1.1, "service": 1.1, "unknown": 1.1,
-    "pedestrian": 1.2, "tertiary": 1.2, "footway": 1.3, "secondary": 1.4,
-    "primary": 1.6, "trunk": 2.0,
+    "cycleway": 0.8,
+    "living_street": 0.9,
+    "path": 1.0,
+    "residential": 1.0,
+    "unclassified": 1.0,
+    "track": 1.1,
+    "service": 1.1,
+    "unknown": 1.1,
+    "pedestrian": 1.2,
+    "tertiary": 1.2,
+    "footway": 1.3,
+    "secondary": 1.4,
+    "primary": 1.6,
+    "trunk": 2.0,
 }
 #: and by facility where there is one; a class III route keeps the street's
 #: own rating, slightly softened and never worse than a tertiary street,
 #: because sharrows do not change the traffic but SFMTA did pick the street
-FACILITY_STRESS = {"path": 0.8, "separated": 0.8, "buffered_lane": 0.9,
-                   "lane": 1.0, "neighborway": 0.9}
+FACILITY_STRESS = {
+    "path": 0.8,
+    "separated": 0.8,
+    "buffered_lane": 0.9,
+    "lane": 1.0,
+    "neighborway": 0.9,
+}
 ROUTE_SOFTEN = 0.95
 ROUTE_CAP = 1.2
 
@@ -89,17 +105,21 @@ def load_bikeways(path: Path = BIKEWAYS_GEOJSON) -> gpd.GeoDataFrame:
             continue
         fac = _facility(f["properties"])
         if fac:
-            rows.append({"facility": fac, "street": f["properties"].get("streetname") or "",
-                         "geometry": LineString(g["coordinates"])})
+            rows.append(
+                {
+                    "facility": fac,
+                    "street": f["properties"].get("streetname") or "",
+                    "geometry": LineString(g["coordinates"]),
+                }
+            )
     gdf = gpd.GeoDataFrame(rows, crs="EPSG:4326")
-    log.info("SFMTA bikeways: %d segments, %s", len(gdf),
-             dict(gdf["facility"].value_counts()))
+    log.info("SFMTA bikeways: %d segments, %s", len(gdf), dict(gdf["facility"].value_counts()))
     return gdf
 
 
 def _segments(line: LineString) -> np.ndarray:
     c = np.asarray(line.coords)[:, :2]
-    return np.c_[c[:-1], c[1:]]            # x0 y0 x1 y1 per segment
+    return np.c_[c[:-1], c[1:]]  # x0 y0 x1 y1 per segment
 
 
 def _sample(line: LineString, spacing: float) -> tuple[np.ndarray, np.ndarray]:
@@ -112,8 +132,10 @@ def _sample(line: LineString, spacing: float) -> tuple[np.ndarray, np.ndarray]:
     ahead = [line.interpolate(min(x + eps, line.length)) for x in d]
     behind = [line.interpolate(max(x - eps, 0.0)) for x in d]
     xy = np.array([(p.x, p.y) for p in pts])
-    br = np.arctan2([a.y - b.y for a, b in zip(ahead, behind)],
-                    [a.x - b.x for a, b in zip(ahead, behind)])
+    br = np.arctan2(
+        [a.y - b.y for a, b in zip(ahead, behind, strict=False)],
+        [a.x - b.x for a, b in zip(ahead, behind, strict=False)],
+    )
     return xy, br
 
 
@@ -124,17 +146,24 @@ def conflate(edges: gpd.GeoDataFrame, bikeways: gpd.GeoDataFrame | None = None) 
     bw = bikeways.to_crs(edges.crs)
     # one straight piece per SFMTA vertex pair, so the heading test is local
     pieces, piece_fac = [], []
-    for fac, geom in zip(bw["facility"], bw.geometry):
+    for fac, geom in zip(bw["facility"], bw.geometry, strict=False):
         for x0, y0, x1, y1 in _segments(geom):
             pieces.append(LineString([(x0, y0), (x1, y1)]))
             piece_fac.append(fac)
     piece_fac = np.array(piece_fac)
-    piece_br = np.array([np.arctan2(p.coords[1][1] - p.coords[0][1],
-                                    p.coords[1][0] - p.coords[0][0]) for p in pieces])
+    piece_br = np.array(
+        [
+            np.arctan2(p.coords[1][1] - p.coords[0][1], p.coords[1][0] - p.coords[0][0])
+            for p in pieces
+        ]
+    )
     tree = STRtree(pieces)
     out = np.full(len(edges), "", dtype=object)
-    cand = edges.index[edges["bike_ok"].fillna(False).astype(bool)] \
-        if "bike_ok" in edges else edges.index
+    cand = (
+        edges.index[edges["bike_ok"].fillna(False).astype(bool)]
+        if "bike_ok" in edges
+        else edges.index
+    )
     with step(f"conflating {len(pieces)} SFMTA bikeway pieces onto {len(cand)} edges", log):
         for i in cand:
             geom = edges.geometry.loc[i]
@@ -142,6 +171,7 @@ def conflate(edges: gpd.GeoDataFrame, bikeways: gpd.GeoDataFrame | None = None) 
                 continue
             xy, br = _sample(geom, SAMPLE_M)
             from shapely.geometry import Point
+
             pts = [Point(x, y) for x, y in xy]
             hit = np.zeros(len(pts), dtype=int) - 1
             for k, p in enumerate(pts):
@@ -164,12 +194,16 @@ def conflate(edges: gpd.GeoDataFrame, bikeways: gpd.GeoDataFrame | None = None) 
     return s
 
 
-def stress(edges: gpd.GeoDataFrame, facility: pd.Series | None = None) -> np.ndarray:
+def stress(edges: pd.DataFrame, facility: pd.Series | None = None) -> np.ndarray:
     """Bike comfort multiplier per edge (1.0 = an ordinary residential block)."""
     cls = edges["cls"].fillna("unknown").to_numpy()
     m = np.array([CLASS_STRESS.get(c, 1.1) for c in cls])
     if facility is None:
-        facility = edges["sfmta_facility"] if "sfmta_facility" in edges else pd.Series("", index=edges.index)
+        facility = (
+            edges["sfmta_facility"]
+            if "sfmta_facility" in edges
+            else pd.Series("", index=edges.index)
+        )
     fac = facility.fillna("").to_numpy()
     for f, v in FACILITY_STRESS.items():
         m[fac == f] = np.minimum(m[fac == f], v)

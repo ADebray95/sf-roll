@@ -1,0 +1,61 @@
+# Run by prek (`uv run prek install` once, then on every commit). Mirrors CI's fast checks;
+# the Playwright e2e and the vitest suite stay in CI and `pnpm run test` / `pnpm run e2e`.
+repos:
+  - repo: local
+    hooks:
+      - id: betterleaks
+        name: betterleaks (secrets in staged changes)
+        entry: betterleaks git --pre-commit --staged --redact --no-banner
+        language: system
+        pass_filenames: false
+      - id: ruff-check
+        name: ruff check
+        entry: uv run ruff check
+        language: system
+        types: [python]
+      - id: ruff-format
+        name: ruff format --check
+        entry: uv run ruff format --check
+        language: system
+        types: [python]
+      - id: ty
+        name: ty check
+        entry: uv run ty check
+        language: system
+        types: [python]
+        pass_filenames: false
+      - id: pytest
+        name: pytest (not needs_data)
+        entry: uv run pytest -q -m "not needs_data"
+        language: system
+        types: [python]
+        pass_filenames: false
+      - id: oxlint
+        name: oxlint
+        entry: pnpm exec oxlint --deny-warnings
+        language: system
+        types_or: [javascript, ts]
+        pass_filenames: false
+      - id: oxfmt
+        name: oxfmt --check
+        entry: pnpm exec oxfmt --check
+        language: system
+        pass_filenames: false
+      - id: tsc
+        name: tsc --checkJs
+        entry: pnpm run typecheck
+        language: system
+        types_or: [javascript, ts]
+        pass_filenames: false
+      - id: actionlint
+        name: actionlint
+        entry: uv run actionlint
+        language: system
+        files: ^\.github/workflows/
+        pass_filenames: false
+      - id: zizmor
+        name: zizmor
+        entry: uv run zizmor --offline .github/workflows
+        language: system
+        files: ^\.github/workflows/
+        pass_filenames: false

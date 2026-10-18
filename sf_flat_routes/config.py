@@ -3,6 +3,7 @@
 Everything tunable in the analysis lives here so that experiments are
 reproducible and the cost model is auditable.
 """
+
 from __future__ import annotations
 
 import os
@@ -23,14 +24,12 @@ PROCESSED_DIR = Path(_RUN_DIR) / "processed" if _RUN_DIR else DATA_DIR / "proces
 OUTPUT_DIR = Path(_RUN_DIR) / "outputs" if _RUN_DIR else PROJECT_ROOT / "outputs"
 #: The route finder as a static site, deployed to GitHub Pages from here.
 SITE_DIR = Path(_RUN_DIR) / "site" if _RUN_DIR else PROJECT_ROOT / "site"
-#: The product is "flattensf"; the Python package keeps its older name.
-PRODUCT_NAME = "Flatten SF"
-REPO_URL = "https://github.com/almostimplemented/flattensf"
-#: The host the site answers on. Pages serves the custom domain on www and
-#: redirects the apex to it, so links, the canonical URL and the social
-#: preview image all use www; the CNAME file carries the same host.
-SITE_DOMAIN = "www.flattensf.com"
-SITE_URL = f"https://{SITE_DOMAIN}/"
+#: The product is "Roll SF"; the Python package keeps flattensf's name.
+PRODUCT_NAME = "Roll SF"
+REPO_URL = "https://github.com/ADebray95/sf-roll"
+#: Where GitHub Pages serves the site: the project page, no custom domain.
+#: Used for the canonical link and the social preview tags.
+SITE_URL = "https://adebray95.github.io/sf-roll/"
 
 for _d in (RAW_DIR, PROCESSED_DIR, OUTPUT_DIR):
     _d.mkdir(parents=True, exist_ok=True)
@@ -57,6 +56,7 @@ SF_BBOX = (-122.5200, -122.3300, 37.6950, 37.8350)
 #: via the Bay Bridge (no pedestrian access to the western span) so they are
 #: excluded from neighborhood-pair routing.
 EXCLUDED_NEIGHBORHOODS = ("Treasure Island/YBI",)
+
 
 # --------------------------------------------------------------------------
 # Elevation sampling / smoothing
@@ -111,6 +111,7 @@ def _overrides() -> dict:
     if not raw:
         return {}
     import json
+
     try:
         return dict(json.loads(raw))
     except (TypeError, ValueError) as exc:
@@ -146,6 +147,7 @@ GRADE_PERCENTILE = 95
 #: maximum-grade tests, which are instead judged on average grade.
 MIN_RELIABLE_GRADE_LENGTH_M = 15.0
 
+
 # --------------------------------------------------------------------------
 # Routing cost model
 # --------------------------------------------------------------------------
@@ -166,6 +168,7 @@ class CostWeights:
     per metre climbed; cyclists are far more climb-averse, so the bicycle
     default is higher.
     """
+
     name: str = "balanced"
     #: metres of equivalent detour accepted per metre of climbing
     alpha: float = 8.0
@@ -196,20 +199,42 @@ class CostWeights:
 #: The four routing objectives required by the analysis.
 ROUTING_PROFILES: dict[str, CostWeights] = {
     # A. Shortest -- distance only.
-    "shortest": CostWeights(name="shortest", alpha=0.0, beta=0.0, gamma=0.0,
-                            threshold_penalties=(0, 0, 0, 0, 0), extreme_extra=0.0,
-                            use_class_multiplier=False),
+    "shortest": CostWeights(
+        name="shortest",
+        alpha=0.0,
+        beta=0.0,
+        gamma=0.0,
+        threshold_penalties=(0, 0, 0, 0, 0),
+        extreme_extra=0.0,
+        use_class_multiplier=False,
+    ),
     # B. Minimum climbing -- climbing dominates, grade shape ignored.
-    "min_climb": CostWeights(name="min_climb", alpha=120.0, beta=0.0, gamma=0.0,
-                             threshold_penalties=(0, 0, 0, 0, 0), extreme_extra=0.0),
+    "min_climb": CostWeights(
+        name="min_climb",
+        alpha=120.0,
+        beta=0.0,
+        gamma=0.0,
+        threshold_penalties=(0, 0, 0, 0, 0),
+        extreme_extra=0.0,
+    ),
     # C. Grade-averse -- steep *segments* dominate, total climbing secondary.
-    "grade_averse": CostWeights(name="grade_averse", alpha=4.0, beta=12.0, gamma=6.0,
-                                threshold_penalties=(0.25, 1.0, 3.0, 6.0, 15.0),
-                                extreme_extra=15.0),
+    "grade_averse": CostWeights(
+        name="grade_averse",
+        alpha=4.0,
+        beta=12.0,
+        gamma=6.0,
+        threshold_penalties=(0.25, 1.0, 3.0, 6.0, 15.0),
+        extreme_extra=15.0,
+    ),
     # D. Balanced "flat but reasonable".
-    "balanced": CostWeights(name="balanced", alpha=14.0, beta=2.0, gamma=2.0,
-                            threshold_penalties=(0.25, 0.75, 2.0, 4.0, 10.0),
-                            extreme_extra=10.0),
+    "balanced": CostWeights(
+        name="balanced",
+        alpha=14.0,
+        beta=2.0,
+        gamma=2.0,
+        threshold_penalties=(0.25, 0.75, 2.0, 4.0, 10.0),
+        extreme_extra=10.0,
+    ),
 }
 
 #: Sweep used to trace the distance/climb Pareto frontier. Each value scales
@@ -218,8 +243,8 @@ ROUTING_PROFILES: dict[str, CostWeights] = {
 #: large values approach the flattest possible route. Scaling only alpha,
 #: as an earlier version did, left beta and gamma in force at the "shortest"
 #: end and the frontier never reached the true shortest path.
-PARETO_LAMBDA_SWEEP = (0.0, 0.1, 0.2, 0.35, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0,
-                       5.0, 8.0, 15.0)
+PARETO_LAMBDA_SWEEP = (0.0, 0.1, 0.2, 0.35, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 5.0, 8.0, 15.0)
+
 
 # --------------------------------------------------------------------------
 # Travel modes
@@ -242,12 +267,19 @@ class ModeConfig:
 
 
 #: Classes that are never usable on foot or by bike, in either mode.
-NEVER_ROUTABLE_CLASSES = frozenset({
-    "motorway",           # grade-separated freeways
-    "motorway_link",
-    # rail/water subtypes are filtered by subtype, these are belt-and-braces
-    "light_rail", "subway", "tram", "standard_gauge", "funicular", "rail",
-})
+NEVER_ROUTABLE_CLASSES = frozenset(
+    {
+        "motorway",  # grade-separated freeways
+        "motorway_link",
+        # rail/water subtypes are filtered by subtype, these are belt-and-braces
+        "light_rail",
+        "subway",
+        "tram",
+        "standard_gauge",
+        "funicular",
+        "rail",
+    }
+)
 
 #: Subclasses excluded from the routable graph for *both* modes.
 #: ``sidewalk`` and ``crosswalk`` are excluded because the analysis models
@@ -258,11 +290,26 @@ NEVER_ROUTABLE_SUBCLASSES = frozenset({"sidewalk", "crosswalk", "driveway", "par
 
 WALK = ModeConfig(
     name="walk",
-    allowed_classes=frozenset({
-        "trunk", "primary", "secondary", "tertiary", "residential",
-        "living_street", "unclassified", "service", "pedestrian",
-        "footway", "path", "steps", "track", "cycleway", "bridleway", "unknown",
-    }),
+    allowed_classes=frozenset(
+        {
+            "trunk",
+            "primary",
+            "secondary",
+            "tertiary",
+            "residential",
+            "living_street",
+            "unclassified",
+            "service",
+            "pedestrian",
+            "footway",
+            "path",
+            "steps",
+            "track",
+            "cycleway",
+            "bridleway",
+            "unknown",
+        }
+    ),
     excluded_subclasses=NEVER_ROUTABLE_SUBCLASSES,
     access_modes=("foot",),
     class_multiplier={
@@ -272,28 +319,41 @@ WALK = ModeConfig(
         "trunk": 1.15,
         "primary": 1.05,
     },
-    respect_oneway=False,   # pedestrians are not bound by one-way streets
+    respect_oneway=False,  # pedestrians are not bound by one-way streets
 )
 
 BIKE = ModeConfig(
     name="bike",
-    allowed_classes=frozenset({
-        "trunk", "primary", "secondary", "tertiary", "residential",
-        "living_street", "unclassified", "service", "pedestrian",
-        "footway", "path", "cycleway", "track", "unknown",
-    }),
+    allowed_classes=frozenset(
+        {
+            "trunk",
+            "primary",
+            "secondary",
+            "tertiary",
+            "residential",
+            "living_street",
+            "unclassified",
+            "service",
+            "pedestrian",
+            "footway",
+            "path",
+            "cycleway",
+            "track",
+            "unknown",
+        }
+    ),
     # Steps are excluded outright for bicycles -- a route suitable for a
     # pedestrian is emphatically not necessarily rideable.
     excluded_subclasses=NEVER_ROUTABLE_SUBCLASSES,
     access_modes=("bicycle",),
     class_multiplier={
-        "cycleway": 0.85,       # protected/dedicated bike infrastructure
+        "cycleway": 0.85,  # protected/dedicated bike infrastructure
         "living_street": 0.9,
         "residential": 0.95,
-        "trunk": 1.9,           # e.g. 19th Ave, Van Ness -- high stress
+        "trunk": 1.9,  # e.g. 19th Ave, Van Ness -- high stress
         "primary": 1.45,
         "secondary": 1.2,
-        "footway": 1.5,         # rideable only where bicycles are permitted
+        "footway": 1.5,  # rideable only where bicycles are permitted
         "path": 1.1,
         "pedestrian": 1.4,
     },
@@ -304,6 +364,7 @@ MODES: dict[str, ModeConfig] = {"walk": WALK, "bike": BIKE}
 
 #: Classes bicycles may never use even when the class list would allow it.
 BIKE_FORBIDDEN_CLASSES = frozenset({"steps", "bridleway"})
+
 
 # --------------------------------------------------------------------------
 # Analysis parameters
@@ -358,12 +419,22 @@ FEATURED_PAIRS = (
 #: Validation targets -- well known flat corridors and steep streets used as
 #: sanity checks on the elevation model (see ``validate`` command).
 VALIDATION_FLAT = (
-    "The Wiggle", "Market Street", "Valencia Street", "The Embarcadero",
-    "Great Highway", "Alemany Boulevard", "San Jose Avenue", "Illinois Street",
+    "The Wiggle",
+    "Market Street",
+    "Valencia Street",
+    "The Embarcadero",
+    "Great Highway",
+    "Alemany Boulevard",
+    "San Jose Avenue",
+    "Illinois Street",
 )
 VALIDATION_STEEP = (
-    "Filbert Street", "22nd Street", "Jones Street", "Divisadero Street",
-    "Lombard Street", "Duboce Avenue",
+    "Filbert Street",
+    "22nd Street",
+    "Jones Street",
+    "Divisadero Street",
+    "Lombard Street",
+    "Duboce Avenue",
 )
 
 
@@ -372,8 +443,9 @@ def profile(name: str) -> CostWeights:
     try:
         return ROUTING_PROFILES[name]
     except KeyError:
-        raise KeyError(f"unknown routing profile {name!r}; "
-                       f"choose from {sorted(ROUTING_PROFILES)}") from None
+        raise KeyError(
+            f"unknown routing profile {name!r}; choose from {sorted(ROUTING_PROFILES)}"
+        ) from None
 
 
 def with_alpha(weights: CostWeights, alpha: float) -> CostWeights:
@@ -387,7 +459,11 @@ def with_scale(weights: CostWeights, lam: float) -> CostWeights:
     ``lam == 0`` is pure distance, with the comfort multipliers switched off
     so that it coincides exactly with the ``shortest`` objective.
     """
-    return replace(weights, alpha=weights.alpha * lam, beta=weights.beta * lam,
-                   gamma=weights.gamma * lam,
-                   use_class_multiplier=(lam > 0) and weights.use_class_multiplier,
-                   name=f"{weights.name}_x{lam:g}")
+    return replace(
+        weights,
+        alpha=weights.alpha * lam,
+        beta=weights.beta * lam,
+        gamma=weights.gamma * lam,
+        use_class_multiplier=(lam > 0) and weights.use_class_multiplier,
+        name=f"{weights.name}_x{lam:g}",
+    )

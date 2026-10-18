@@ -19,6 +19,7 @@ Skipped unless Playwright, a Chromium build and a built map are all present:
     pip install playwright && playwright install chromium
     python -m sf_flat_routes map
 """
+
 from __future__ import annotations
 
 import glob
@@ -32,24 +33,29 @@ import pytest
 from sf_flat_routes.config import PROCESSED_DIR
 from sf_flat_routes.viz_interactive import INTERACTIVE_HTML
 
-playwright = pytest.importorskip("playwright.sync_api",
-                                 reason="playwright is not installed")
+playwright = pytest.importorskip("playwright.sync_api", reason="playwright is not installed")
 
 #: Pairs chosen to span flat and hilly parts of the city, and both modes.
 PAIRS = [
-    ("Mission", "Outer Sunset"), ("Noe Valley", "Financial District"),
-    ("Inner Richmond", "Downtown/Civic Center"), ("Bayview", "Golden Gate Park"),
-    ("Bernal Heights", "Marina"), ("Chinatown", "Inner Sunset"),
-    ("Excelsior", "South of Market"), ("Potrero Hill", "Western Addition"),
-    ("Presidio", "Visitacion Valley"), ("Twin Peaks", "Marina"),
+    ("Mission", "Outer Sunset"),
+    ("Noe Valley", "Financial District"),
+    ("Inner Richmond", "Downtown/Civic Center"),
+    ("Bayview", "Golden Gate Park"),
+    ("Bernal Heights", "Marina"),
+    ("Chinatown", "Inner Sunset"),
+    ("Excelsior", "South of Market"),
+    ("Potrero Hill", "Western Addition"),
+    ("Presidio", "Visitacion Valley"),
+    ("Twin Peaks", "Marina"),
 ]
 
 
 def _chromium() -> str | None:
     """A usable Chromium, either Playwright's own or a pre-installed one."""
-    for pattern in ("/opt/pw-browsers/chromium-*/chrome-linux/chrome",
-                    os.path.expanduser(
-                        "~/.cache/ms-playwright/chromium-*/chrome-linux/chrome")):
+    for pattern in (
+        "/opt/pw-browsers/chromium-*/chrome-linux/chrome",
+        os.path.expanduser("~/.cache/ms-playwright/chromium-*/chrome-linux/chrome"),
+    ):
         hits = sorted(glob.glob(pattern))
         if hits:
             return hits[-1]
@@ -57,10 +63,13 @@ def _chromium() -> str | None:
 
 
 pytestmark = [
-    pytest.mark.skipif(not INTERACTIVE_HTML.exists(),
-                       reason="map not built; run `python -m sf_flat_routes map`"),
-    pytest.mark.skipif(not (PROCESSED_DIR / "edges_directed.parquet").exists(),
-                       reason="processed data not built"),
+    pytest.mark.needs_data,
+    pytest.mark.skipif(
+        not INTERACTIVE_HTML.exists(), reason="map not built; run `python -m sf_flat_routes map`"
+    ),
+    pytest.mark.skipif(
+        not (PROCESSED_DIR / "edges_directed.parquet").exists(), reason="processed data not built"
+    ),
 ]
 
 
@@ -76,7 +85,7 @@ def reference():
     ctx = build_context()
     rows = []
     for mode, graph in ctx.graphs.items():
-        pts = dict(zip(ctx.points[mode]["neighborhood"], ctx.points[mode]["node"]))
+        pts = dict(zip(ctx.points[mode]["neighborhood"], ctx.points[mode]["node"], strict=False))
         for pname, w in ROUTING_PROFILES.items():
             cost = graph.build_costs(w)
             for o, d in PAIRS:
@@ -86,18 +95,25 @@ def reference():
                 if not arcs:
                     continue
                 t = graph.table.iloc[arcs]
-                rows.append({
-                    "mode": mode, "profile": pname, "o": o, "d": d,
-                    "path": [[int(e), 1 if dr == "rev" else 0]
-                             for e, dr in zip(t["edge_id"], t["direction"])],
-                    "cost": float(cost[arcs].sum()),
-                    "distance_m": float(s["distance_m"]),
-                    "gain": float(s["elev_gain_m"]),
-                    "loss": float(s["elev_loss_m"]),
-                    "maxg": float(s["max_grade"]),
-                    "avgg": float(s["avg_abs_grade"]),
-                    "th": [float(s[f"d_above_{t_}"]) for t_ in (3, 5, 8, 10, 15)],
-                })
+                rows.append(
+                    {
+                        "mode": mode,
+                        "profile": pname,
+                        "o": o,
+                        "d": d,
+                        "path": [
+                            [int(e), 1 if dr == "rev" else 0]
+                            for e, dr in zip(t["edge_id"], t["direction"], strict=False)
+                        ],
+                        "cost": float(cost[arcs].sum()),
+                        "distance_m": float(s["distance_m"]),
+                        "gain": float(s["elev_gain_m"]),
+                        "loss": float(s["elev_loss_m"]),
+                        "maxg": float(s["max_grade"]),
+                        "avgg": float(s["avg_abs_grade"]),
+                        "th": [float(s[f"d_above_{t_}"]) for t_ in (3, 5, 8, 10, 15)],
+                    }
+                )
     assert rows, "no reference routes could be computed"
     return rows
 
@@ -116,24 +132,29 @@ def browser_results(reference):
         with sync_playwright() as pw:
             try:
                 browser = pw.chromium.launch(
-                    executable_path=exe,
-                    args=["--no-sandbox", "--disable-gpu"])
-            except Exception as exc:                       # pragma: no cover
+                    executable_path=exe, args=["--no-sandbox", "--disable-gpu"]
+                )
+            except Exception as exc:  # pragma: no cover
                 pytest.skip(f"no usable Chromium: {exc}")
             page = browser.new_page(viewport={"width": 1400, "height": 900})
             page.on("pageerror", lambda e: errors.append(str(e)))
-            page.on("console", lambda m: errors.append(m.text)
-                    if m.type == "error" and "ERR_TUNNEL" not in m.text
-                    and "ERR_NAME" not in m.text and "tile" not in m.text.lower()
-                    else None)
-            page.goto(INTERACTIVE_HTML.resolve().as_uri(), wait_until="load",
-                      timeout=240_000)
-            page.wait_for_function("window.App && window.App.graph",
-                                  timeout=240_000)
+            page.on(
+                "console",
+                lambda m: (
+                    errors.append(m.text)
+                    if m.type == "error"
+                    and "ERR_TUNNEL" not in m.text
+                    and "ERR_NAME" not in m.text
+                    and "tile" not in m.text.lower()
+                    else None
+                ),
+            )
+            page.goto(INTERACTIVE_HTML.resolve().as_uri(), wait_until="load", timeout=240_000)
+            page.wait_for_function("window.App && window.App.graph", timeout=240_000)
             out = page.evaluate(script, reference)
             info = page.evaluate(
-                "() => ({nodes: App.graph.n, arcs: App.graph.m,"
-                " edges: App.geom.nEdges})")
+                "() => ({nodes: App.graph.n, arcs: App.graph.m, edges: App.geom.nEdges})"
+            )
             browser.close()
     return out, info, errors
 
@@ -174,23 +195,24 @@ _BROWSER_SCRIPT = """(ref) => {
 def warp_result():
     """Build the warped city in the browser and report its diagnostics."""
     from playwright.sync_api import sync_playwright
+
     exe = _chromium()
     errors: list = []
     with sync_playwright() as pw:
         try:
-            browser = pw.chromium.launch(executable_path=exe,
-                                         args=["--no-sandbox", "--disable-gpu"])
-        except Exception as exc:                            # pragma: no cover
+            browser = pw.chromium.launch(
+                executable_path=exe, args=["--no-sandbox", "--disable-gpu"]
+            )
+        except Exception as exc:  # pragma: no cover
             pytest.skip(f"no usable Chromium: {exc}")
         page = browser.new_page(viewport={"width": 1400, "height": 900})
         page.on("pageerror", lambda e: errors.append(str(e)))
-        page.goto(INTERACTIVE_HTML.resolve().as_uri(), wait_until="load",
-                  timeout=240_000)
+        page.goto(INTERACTIVE_HTML.resolve().as_uri(), wait_until="load", timeout=240_000)
         page.wait_for_function("window.App && window.App.graph", timeout=240_000)
         page.click("#warptoggle")
         page.wait_for_function(
-            "App.warp && !document.getElementById('busy').classList.contains('on')",
-            timeout=180_000)
+            "App.warp && !document.getElementById('busy').classList.contains('on')", timeout=180_000
+        )
         out = page.evaluate("""() => {
             const f = Warp.frame(37.76, -122.44), pts = App.DATA.points.walk, shift = {};
             for (const n of Object.keys(pts)) {
@@ -201,7 +223,9 @@ def warp_result():
             }
             const c = App.network.altCoords;
             let finite = true;
-            for (let i = 0; i < c.length; i++) if (!Number.isFinite(c[i])) { finite = false; break; }
+            for (let i = 0; i < c.length; i++) {
+                if (!Number.isFinite(c[i])) { finite = false; break; }
+            }
             return {anchors: App.warp.anchors, stress: App.warp.stress,
                     ms: App.warp.ms, shift, finite, n: c.length};
         }""")
@@ -218,11 +242,12 @@ def test_the_page_loads_without_javascript_errors(browser_results):
 def test_the_browser_graph_matches_the_python_graph(browser_results):
     _out, info, _errors = browser_results
     import pandas as pd
+
     directed = pd.read_parquet(PROCESSED_DIR / "edges_directed.parquet")
     import geopandas as gpd
+
     edges = gpd.read_parquet(PROCESSED_DIR / "edges_metrics.parquet")
-    n_arcs = int((directed["walk_traversable"]
-                  | directed["bike_traversable"]).sum())
+    n_arcs = int((directed["walk_traversable"] | directed["bike_traversable"]).sum())
     assert info["edges"] == len(edges)
     # the packed arc count drops arcs outside both modes' components
     assert 0.9 * n_arcs <= info["arcs"] <= n_arcs
@@ -245,15 +270,14 @@ def test_metrics_agree_on_pythons_own_path(browser_results, reference):
         # distance error accumulates one quantum per arc, so scale with length
         tol = max(0.5, 1e-4 * py["distance_m"])
         if abs(js["distance_m"] - py["distance_m"]) > tol:
-            bad.append((r, f"distance {js['distance_m']:.2f} vs "
-                           f"{py['distance_m']:.2f}"))
+            bad.append((r, f"distance {js['distance_m']:.2f} vs {py['distance_m']:.2f}"))
         for k, t in (("gain", 0.3), ("loss", 0.3)):
             if abs(js[k] - py[k]) > t:
                 bad.append((r, f"{k} {js[k]:.3f} vs {py[k]:.3f}"))
         for k in ("maxg", "avgg"):
             if abs(js[k] - py[k]) > 5e-4:
                 bad.append((r, f"{k} {js[k]:.5f} vs {py[k]:.5f}"))
-        for i, (a, b) in enumerate(zip(js["th"], py["th"])):
+        for i, (a, b) in enumerate(zip(js["th"], py["th"], strict=False)):
             if abs(a - b) > max(1.0, 1e-3 * py["distance_m"]):
                 bad.append((r, f"d_above[{i}] {a:.2f} vs {b:.2f}"))
     assert not bad, f"{len(bad)} metric mismatches, e.g. {bad[:4]}"
@@ -262,10 +286,11 @@ def test_metrics_agree_on_pythons_own_path(browser_results, reference):
 def test_the_browser_router_is_optimal(browser_results):
     """The browser's own route must never cost more than Python's."""
     out, _info, _errors = browser_results
-    worse = [(r["mode"], r["profile"], r["o"], r["d"],
-              r["ownRoute"]["cost"], r["onPyPath"]["cost"])
-             for r in out
-             if r["ownRoute"]["cost"] > r["onPyPath"]["cost"] * 1.0005 + 0.5]
+    worse = [
+        (r["mode"], r["profile"], r["o"], r["d"], r["ownRoute"]["cost"], r["onPyPath"]["cost"])
+        for r in out
+        if r["ownRoute"]["cost"] > r["onPyPath"]["cost"] * 1.0005 + 0.5
+    ]
     assert not worse, f"browser found costlier routes: {worse[:4]}"
 
 
@@ -275,7 +300,8 @@ def test_most_routes_are_identical_not_merely_equivalent(browser_results):
     same = sum(1 for r in out if r.get("same"))
     assert same >= 0.6 * len(out), (
         f"only {same}/{len(out)} arc sequences matched exactly, which "
-        "suggests a cost-model difference rather than tie-breaking")
+        "suggests a cost-model difference rather than tie-breaking"
+    )
 
 
 def test_the_warp_builds_without_errors(warp_result):
@@ -296,7 +322,8 @@ def test_hilly_neighborhoods_move_more_than_flat_ones(warp_result):
     out, _ = warp_result
     s = out["shift"]
     hilly = max(s.get("Twin Peaks", 0), s.get("West of Twin Peaks", 0))
-    flat = min(s.get("Mission", 1e9), s.get("South of Market", 1e9),
-               s.get("Financial District", 1e9))
+    flat = min(
+        s.get("Mission", 1e9), s.get("South of Market", 1e9), s.get("Financial District", 1e9)
+    )
     assert hilly > 2 * flat, f"hilly {hilly:.0f} m vs flat {flat:.0f} m"
     assert hilly > 1500

@@ -10,6 +10,7 @@ cannot drift from the analysis.
 
 Skipped unless Playwright, a Chromium build and a built page are present.
 """
+
 from __future__ import annotations
 
 import glob
@@ -20,14 +21,14 @@ import pytest
 from sf_flat_routes.config import PROCESSED_DIR
 from sf_flat_routes.viz_interactive import SIMPLE_HTML, SITE_INDEX
 
-playwright = pytest.importorskip("playwright.sync_api",
-                                 reason="playwright is not installed")
+playwright = pytest.importorskip("playwright.sync_api", reason="playwright is not installed")
 
 
 def _chromium() -> str | None:
-    for pattern in ("/opt/pw-browsers/chromium-*/chrome-linux/chrome",
-                    os.path.expanduser(
-                        "~/.cache/ms-playwright/chromium-*/chrome-linux/chrome")):
+    for pattern in (
+        "/opt/pw-browsers/chromium-*/chrome-linux/chrome",
+        os.path.expanduser("~/.cache/ms-playwright/chromium-*/chrome-linux/chrome"),
+    ):
         hits = sorted(glob.glob(pattern))
         if hits:
             return hits[-1]
@@ -35,16 +36,29 @@ def _chromium() -> str | None:
 
 
 pytestmark = [
-    pytest.mark.skipif(not SIMPLE_HTML.exists(),
-                       reason="route page not built; run `python -m sf_flat_routes map`"),
-    pytest.mark.skipif(not (PROCESSED_DIR / "edges_directed.parquet").exists(),
-                       reason="processed data not built"),
+    pytest.mark.needs_data,
+    pytest.mark.skipif(
+        not SIMPLE_HTML.exists(), reason="route page not built; run `python -m sf_flat_routes map`"
+    ),
+    pytest.mark.skipif(
+        not (PROCESSED_DIR / "edges_directed.parquet").exists(), reason="processed data not built"
+    ),
 ]
 
-_SEARCHES = ["24th & mission", "1234 valencia", "golden gate park", "ferry building",
-             "church st and 24th st", "coit tower", "ocean beach", "caltrain",
-             "geary blvd & 25th ave", "25th avenue and geary boulevard", "cabrillo st & 38th ave",
-             "geary blvd"]
+_SEARCHES = [
+    "24th & mission",
+    "1234 valencia",
+    "golden gate park",
+    "ferry building",
+    "church st and 24th st",
+    "coit tower",
+    "ocean beach",
+    "caltrain",
+    "geary blvd & 25th ave",
+    "25th avenue and geary boulevard",
+    "cabrillo st & 38th ave",
+    "geary blvd",
+]
 
 _SCRIPT = """(queries) => {
     const fam = App.family, g = App.graph;
@@ -72,7 +86,8 @@ _SCRIPT = """(queries) => {
                     expanded: App._search.expanded, truncated: App._search.truncated },
         snap: (() => { const p = App.pointAt(-122.58, 37.76); const g = App.graph;
             return p ? { node: p.node, pinLon: p.lon, pinLat: p.lat,
-                         nodeLon: g.nodeLon(p.node), nodeLat: g.nodeLat(p.node) } : { node: -1 }; })(),
+                         nodeLon: g.nodeLon(p.node), nodeLat: g.nodeLat(p.node) }
+                     : { node: -1 }; })(),
     };
 }"""
 
@@ -80,23 +95,31 @@ _SCRIPT = """(queries) => {
 @pytest.fixture(scope="module")
 def page_results():
     from playwright.sync_api import sync_playwright
+
     errors: list = []
     with sync_playwright() as pw:
         try:
-            browser = pw.chromium.launch(executable_path=_chromium(),
-                                         args=["--no-sandbox", "--disable-gpu"])
-        except Exception as exc:                            # pragma: no cover
+            browser = pw.chromium.launch(
+                executable_path=_chromium(), args=["--no-sandbox", "--disable-gpu"]
+            )
+        except Exception as exc:  # pragma: no cover
             pytest.skip(f"no usable Chromium: {exc}")
         page = browser.new_page(viewport={"width": 1280, "height": 800})
         page.on("pageerror", lambda e: errors.append(str(e)))
-        page.on("console", lambda m: errors.append(m.text)
-                if m.type == "error" and "fonts.g" not in m.text
-                and "ERR_" not in m.text else None)
+        page.on(
+            "console",
+            lambda m: (
+                errors.append(m.text)
+                if m.type == "error" and "fonts.g" not in m.text and "ERR_" not in m.text
+                else None
+            ),
+        )
         page.goto(SIMPLE_HTML.resolve().as_uri(), wait_until="load", timeout=240_000)
         page.wait_for_function(
             "window.App && App.family && !App.family.partial"
             " && !document.getElementById('result').hidden",
-            timeout=240_000)
+            timeout=240_000,
+        )
         out = page.evaluate(_SCRIPT, _SEARCHES)
         # change the destination without touching the slider: the line on
         # the map must be the new trip's, not the old one's
@@ -113,7 +136,8 @@ def page_results():
             const end = line[line.length - 1];
             return { before, after: line.length, sameAsShown: line.length === u.latlngs.length,
                      member: App.family.unique.includes(u),
-                     endsAtCoit: Math.abs(end.lat - hit.lat) < 0.004 && Math.abs(end.lng - hit.lon) < 0.004 };
+                     endsAtCoit: Math.abs(end.lat - hit.lat) < 0.004
+                       && Math.abs(end.lng - hit.lon) < 0.004 };
         }""")
         # bike mode, Divisadero & Hayes to Marina Green: with calm streets on
         # the ride goes up Scott (no bikeway, but quiet); off, straight up
@@ -140,7 +164,9 @@ def page_results():
         }"""
         out["calm_on"] = page.evaluate(streets)
         page.evaluate("() => document.getElementById('calm').click()")
-        page.wait_for_function("App.family && !App.family.partial && !App.state.calm", timeout=120_000)
+        page.wait_for_function(
+            "App.family && !App.family.partial && !App.state.calm", timeout=120_000
+        )
         out["calm_off"] = page.evaluate(streets)
         # loop mode: the engine's loops, then the toggle, then a shared link
         out["loops"] = page.evaluate("""() => {
@@ -149,14 +175,20 @@ def page_results():
             while (!s.step(1e9)) {}
             const tail = g.reverse().tail;
             return { src, ms: s.ms, accepted: s.accepted.length, median: s.medianGain,
-              loops: s.loops.map(r => ({ length: r.length, gain: r.gain, overlap: r.overlap, round: r.round,
+              loops: s.loops.map(r => ({
+                length: r.length, gain: r.gain, overlap: r.overlap, round: r.round,
                 first: tail[r.arcs[0]], last: g.head[r.arcs[r.arcs.length - 1]],
-                connected: r.arcs.every((a, i) => i === 0 || tail[a] === g.head[r.arcs[i - 1]]) })) };
+                connected: r.arcs.every((a, i) => i === 0 || tail[a] === g.head[r.arcs[i - 1]]),
+              })) };
         }""")
         out["outback"] = page.evaluate("""() => {
             const g = App.graph, src = App.nearestNode(-122.4435, 37.8060);   // Marina Green
-            const run = (opts) => { const s = g.loops(src, 'walk', Object.assign({ targetM: 4 * 1609.344 }, opts));
-              while (!s.step(1e9)) {} return s.loops.map(r => ({ gain: r.gain, kind: r.kind, overlap: r.overlap, length: r.length })); };
+            const run = (opts) => {
+              const s = g.loops(src, 'walk', Object.assign({ targetM: 4 * 1609.344 }, opts));
+              while (!s.step(1e9)) {}
+              return s.loops.map(r => ({
+                gain: r.gain, kind: r.kind, overlap: r.overlap, length: r.length }));
+            };
             return { loops: run({}), ob: run({ outBack: true }) };
         }""")
         page.evaluate("""() => {
@@ -178,29 +210,45 @@ def page_results():
             delta: document.getElementById('delta').textContent,
             markers: App.markers.getLayers().length })""")
         page.click("#loopbtn")
-        page.wait_for_function("App.family && !App.family.loop && !App.family.partial", timeout=120_000)
+        page.wait_for_function(
+            "App.family && !App.family.loop && !App.family.partial", timeout=120_000
+        )
         page.wait_for_timeout(400)
         out["loop_off"] = page.evaluate("""() => ({ to: document.getElementById('to').value,
             toWidth: document.getElementById('tofield').getBoundingClientRect().width,
             hash: location.hash, slMax: +document.getElementById('sl').max })""")
         # a shared loop link reopens the same loop
-        page.goto(SIMPLE_HTML.resolve().as_uri() + "#l~-122.42713~37.75972~w~3.5~1~Dolores_20Park",
-                  wait_until="load", timeout=240_000)
+        page.goto(
+            SIMPLE_HTML.resolve().as_uri() + "#l~-122.42713~37.75972~w~3.5~1~Dolores_20Park",
+            wait_until="load",
+            timeout=240_000,
+        )
         page.reload(wait_until="load", timeout=240_000)
         page.wait_for_function("window.App && App.family && App.family.loop", timeout=240_000)
         # the GPX track and the units toggle
-        out["gpx"] = page.evaluate("""() => { const g = App.gpx(); const pts = g.match(/<trkpt /g) || [];
+        out["gpx"] = (
+            page.evaluate("""() => { const g = App.gpx(); const pts = g.match(/<trkpt /g) || [];
             const eles = [...g.matchAll(/<ele>([-\\d.]+)<\\/ele>/g)].map(m => +m[1]);
-            return { points: pts.length, latlngs: App.shown.latlngs.length, name: (g.match(/<name>(.*?)<\\/name>/) || [])[1],
-              eleOk: eles.every(Number.isFinite), eleMin: Math.min(...eles), eleMax: Math.max(...eles),
-              header: g.startsWith('<?xml version="1.0"'), closed: g.trim().endsWith('</gpx>') }; }""")
-        page.click("#units button[data-u=km]"); page.wait_for_timeout(300)
-        out["units_km"] = page.evaluate("""() => ({ dist: document.getElementById('v_dist').textContent, climb: document.getElementById('v_climb').textContent,
-            delta: document.getElementById('delta').textContent, slMax: document.getElementById('sl').max, slpos: document.getElementById('slpos').textContent,
-            end1: document.getElementById('end1').textContent, mi: App.state.loopMi, stored: localStorage.getItem('flattensf.units') })""")
-        page.click("#units button[data-u=mi]"); page.wait_for_timeout(300)
-        out["units_mi"] = page.evaluate("""() => ({ dist: document.getElementById('v_dist').textContent, slMax: document.getElementById('sl').max,
+            return { points: pts.length, latlngs: App.shown.latlngs.length,
+              name: (g.match(/<name>(.*?)<\\/name>/) || [])[1],
+              eleOk: eles.every(Number.isFinite), eleMin: Math.min(...eles),
+              eleMax: Math.max(...eles), header: g.startsWith('<?xml version="1.0"'),
+              closed: g.trim().endsWith('</gpx>') }; }""")
+        )
+        page.click("#units button[data-u=km]")
+        page.wait_for_timeout(300)
+        out["units_km"] = page.evaluate("""() => { const g = (id) => document.getElementById(id);
+            return { dist: g('v_dist').textContent, climb: g('v_climb').textContent,
+              delta: g('delta').textContent, slMax: g('sl').max, slpos: g('slpos').textContent,
+              end1: g('end1').textContent, mi: App.state.loopMi,
+              stored: localStorage.getItem('flattensf.units') }; }""")
+        page.click("#units button[data-u=mi]")
+        page.wait_for_timeout(300)
+        out["units_mi"] = (
+            page.evaluate("""() => ({ dist: document.getElementById('v_dist').textContent,
+            slMax: document.getElementById('sl').max,
             stored: localStorage.getItem('flattensf.units') })""")
+        )
         out["loop_link"] = page.evaluate("""() => ({ loop: App.state.loop, mi: App.state.loopMi,
             idx: App.state.loopIdx, from: document.getElementById('from').value,
             n: App.family.unique.length, slVal: +document.getElementById('sl').value })""")
@@ -246,7 +294,9 @@ def test_the_gpx_track_carries_every_point_with_an_elevation(page_results):
 def test_units_switch_to_kilometres_and_back(page_results):
     out, _ = page_results
     km, mi = out["units_km"], out["units_mi"]
-    assert km["dist"].endswith("km") and km["climb"].endswith("m") and " m of climbing" in km["delta"], km
+    assert (
+        km["dist"].endswith("km") and km["climb"].endswith("m") and " m of climbing" in km["delta"]
+    ), km
     # the loop slider runs 2 to 24 km in km mode; the target itself is unchanged
     assert km["slMax"] == "24" and km["end1"] == "24 km" and km["slpos"].endswith("km loop"), km
     assert km["stored"] == "km"
@@ -309,7 +359,10 @@ def test_search_finds_intersections_addresses_and_places(page_results):
     assert any("Ferry Building" in n for n, _ in s["ferry building"])
     # abbreviations and full words match the same corners
     assert s["geary blvd & 25th ave"][0] == ["25th Avenue & Geary Boulevard", "intersection"]
-    assert s["25th avenue and geary boulevard"][0] == ["25th Avenue & Geary Boulevard", "intersection"]
+    assert s["25th avenue and geary boulevard"][0] == [
+        "25th Avenue & Geary Boulevard",
+        "intersection",
+    ]
     assert s["cabrillo st & 38th ave"][0] == ["38th Avenue & Cabrillo Street", "intersection"]
     assert any(k == "intersection" and "Geary Boulevard" in n for n, k in s["geary blvd"])
 
@@ -330,8 +383,9 @@ def test_the_slider_ends_are_the_shortest_and_the_flattest(page_results):
         for b in m:
             if a is b:
                 continue
-            assert not (b["distance_m"] <= a["distance_m"] - 1e-6
-                        and b["gain"] <= a["gain"] - 1e-6), (a, b)
+            assert not (
+                b["distance_m"] <= a["distance_m"] - 1e-6 and b["gain"] <= a["gain"] - 1e-6
+            ), (a, b)
 
 
 def test_the_family_is_monotone_in_distance_and_climbing(page_results):
@@ -340,7 +394,7 @@ def test_the_family_is_monotone_in_distance_and_climbing(page_results):
     and the behaviour the slider's end labels promise."""
     out, _ = page_results
     seq = out["members"]
-    for a, b in zip(seq, seq[1:]):
+    for a, b in zip(seq, seq[1:], strict=False):
         assert b["distance_m"] >= a["distance_m"] - 1e-6
         assert b["gain"] <= a["gain"] + 1e-6
 
@@ -387,7 +441,9 @@ def test_the_frontier_contains_every_weighted_optimum(page_results):
     ctx = build_context(modes=("walk",))
     graph = ctx.graphs["walk"]
     t = graph.table
-    key = {(int(e), d): i for i, (e, d) in enumerate(zip(t["edge_id"], t["direction"]))}
+    key = {
+        (int(e), d): i for i, (e, d) in enumerate(zip(t["edge_id"], t["direction"], strict=False))
+    }
     first = out["members"][0]
     arcs0 = [key[(e, "rev" if r else "fwd")] for e, r in first["arcs"]]
     src = t["from_node"].iloc[arcs0[0]]
@@ -416,9 +472,12 @@ def served_site():
 
     if not SITE_INDEX.exists():
         pytest.skip("site not built")
-    handler = functools.partial(http.server.SimpleHTTPRequestHandler,
-                                directory=str(SITE_INDEX.parent))
-    handler.log_message = lambda *a, **k: None
+
+    class QuietHandler(http.server.SimpleHTTPRequestHandler):
+        def log_message(self, format, *args):
+            pass
+
+    handler = functools.partial(QuietHandler, directory=str(SITE_INDEX.parent))
     srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
     thread = threading.Thread(target=srv.serve_forever, daemon=True)
     thread.start()
@@ -428,29 +487,36 @@ def served_site():
 
 def test_the_site_loads_its_graph_over_http(served_site):
     from playwright.sync_api import sync_playwright
+
     errors: list = []
     with sync_playwright() as pw:
         try:
-            browser = pw.chromium.launch(executable_path=_chromium(),
-                                         args=["--no-sandbox", "--disable-gpu"])
-        except Exception as exc:                            # pragma: no cover
+            browser = pw.chromium.launch(
+                executable_path=_chromium(), args=["--no-sandbox", "--disable-gpu"]
+            )
+        except Exception as exc:  # pragma: no cover
             pytest.skip(f"no usable Chromium: {exc}")
         page = browser.new_page(viewport={"width": 1280, "height": 800})
         page.on("pageerror", lambda e: errors.append(str(e)))
-        page.on("console", lambda m: errors.append(m.text)
-                if m.type == "error" and "fonts.g" not in m.text
-                and "ERR_" not in m.text else None)
+        page.on(
+            "console",
+            lambda m: (
+                errors.append(m.text)
+                if m.type == "error" and "fonts.g" not in m.text and "ERR_" not in m.text
+                else None
+            ),
+        )
         failed: list = []
-        page.on("requestfailed", lambda r: failed.append(r.url)
-                if served_site in r.url else None)
+        page.on("requestfailed", lambda r: failed.append(r.url) if served_site in r.url else None)
         page.goto(served_site, wait_until="load", timeout=240_000)
         page.wait_for_function(
-            "window.App && App.family && !document.getElementById('result').hidden",
-            timeout=240_000)
+            "window.App && App.family && !document.getElementById('result').hidden", timeout=240_000
+        )
         out = page.evaluate("""() => ({
             inline: !!window.DATA.bundle, url: window.DATA.bundle_url,
             hillshade: window.DATA.hillshade && window.DATA.hillshade.url,
-            shade: !!document.querySelector('img.hillshade') && document.querySelector('img.hillshade').naturalWidth,
+            shade: !!document.querySelector('img.hillshade')
+              && document.querySelector('img.hillshade').naturalWidth,
             routes: App.family.unique.length, status: document.getElementById('status').textContent,
         })""")
         browser.close()
@@ -460,6 +526,7 @@ def test_the_site_loads_its_graph_over_http(served_site):
     assert out["hillshade"].startswith("data/hillshade-") and out["shade"] > 1000
     assert out["routes"] >= 2
     import re
+
     index = SITE_INDEX.read_text(encoding="utf-8")
     refs = re.findall(r'(?:href|src)="([^"]+)"', index)
     local = [r for r in refs if not r.startswith("http")]

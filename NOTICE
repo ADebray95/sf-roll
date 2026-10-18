@@ -1,0 +1,40 @@
+Roll SF
+https://github.com/ADebray95/sf-roll
+
+Roll SF is a fork of flattensf (https://github.com/almostimplemented/flattensf)
+by Drew Edwards and contributors, used under the MIT licence. The original
+copyright notice is kept in LICENSE: "Copyright (c) 2026 sf-flat-routes
+contributors".
+
+Code
+----
+- flattensf: MIT licence, see LICENSE.
+- Leaflet 1.9.4, vendored in sf_flat_routes/vendor/: BSD 2-Clause licence,
+  Copyright (c) 2010-2023 Vladimir Agafonkin, Copyright (c) 2010-2011 CloudMade.
+  See sf_flat_routes/vendor/README.md.
+
+Data
+----
+- Street network: Overture Maps Foundation transportation theme, release
+  2026-08-19.0, derived from OpenStreetMap. (c) OpenStreetMap contributors,
+  available under the Open Database Licence (ODbL) 1.0,
+  https://opendatacommons.org/licenses/odbl/1-0/. Overture schema: CDLA
+  Permissive 2.0.
+  The packed street graph published in site/data/graph-*.bin.gz is a derived
+  database of this data and is itself made available under the ODbL 1.0.
+  Attribution is shown in the app's map attribution.
+- Place search: Overture Maps base theme (ODbL 1.0, derived from
+  OpenStreetMap), Overture places (CDLA Permissive 2.0) and Overture addresses
+  (OpenAddresses / City and County of San Francisco).
+- Elevation: USGS 3D Elevation Program (3DEP) 1 m lidar DEM, project
+  CA_SanFrancisco_B23, and the 1/3 arc-second DEM tile n38w123. Public domain
+  (U.S. Geological Survey).
+- Neighbourhood boundaries: San Francisco planning neighbourhoods, via the
+  Code for America click_that_hood mirror (open data).
+
+Map display
+-----------
+The app draws no third-party map tiles: its base map is a hillshade rendered
+from the USGS lidar above and the street lines from the graph itself.
+Fonts (IBM Plex Sans and IBM Plex Mono, SIL Open Font Licence 1.1) are loaded
+from Google Fonts.

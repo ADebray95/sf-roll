@@ -1,0 +1,15 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "printWidth": 100,
+  "ignorePatterns": [
+    "site/**",
+    "outputs/**",
+    "sf_flat_routes/vendor/**",
+    "notebooks/**",
+    "SPEC.md",
+    "uv.lock",
+    "pnpm-lock.yaml",
+    "sf_flat_routes/web/*.html",
+    "pyproject.toml"
+  ]
+}

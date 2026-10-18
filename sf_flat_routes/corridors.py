@@ -50,6 +50,7 @@ induce, then split by street name so that corridors are reportable in human
 terms ("Duboce Ave - Steiner St - Waller St"), and components shorter than
 ``corridor_min_length_m`` are dropped.
 """
+
 from __future__ import annotations
 
 import collections
@@ -57,8 +58,8 @@ import collections
 import numpy as np
 import pandas as pd
 
-from .config import ANALYSIS, OUTPUT_DIR, PROCESSED_DIR
-from .utils import get_logger, progress, step
+from sf_flat_routes.config import ANALYSIS, OUTPUT_DIR, PROCESSED_DIR
+from sf_flat_routes.utils import get_logger, progress, step
 
 log = get_logger("sf_flat_routes.corridors")
 
@@ -72,9 +73,13 @@ CORRIDORS_CSV = OUTPUT_DIR / "flat_corridors.csv"
 CORRIDOR_PROFILES = ("min_climb", "grade_averse", "balanced")
 
 
-def accumulate_edge_usage(graph, arc_store: dict, pairs_df: pd.DataFrame,
-                          pareto_df: pd.DataFrame | None = None,
-                          profiles=CORRIDOR_PROFILES) -> pd.DataFrame:
+def accumulate_edge_usage(
+    graph,
+    arc_store: dict,
+    pairs_df: pd.DataFrame,
+    pareto_df: pd.DataFrame | None = None,
+    profiles=CORRIDOR_PROFILES,
+) -> pd.DataFrame:
     """Aggregate route usage onto undirected edges for one mode."""
     mode = graph.mode
     arc_edge = graph.table["edge_id"].to_numpy()
@@ -87,15 +92,14 @@ def accumulate_edge_usage(graph, arc_store: dict, pairs_df: pd.DataFrame,
     eff_n: dict[int, int] = collections.Counter()
     pareto_count: dict[int, int] = collections.Counter()
 
-    lookup = pairs_df[pairs_df["mode"] == mode].set_index(
-        ["profile", "origin", "destination"])
+    lookup = pairs_df[pairs_df["mode"] == mode].set_index(["profile", "origin", "destination"])
 
     seen_pairs: dict[int, set] = collections.defaultdict(set)
 
     with step(f"accumulating edge usage over neighborhood routes [{mode}]", log):
-        for (pname, o, d), arcs in progress(arc_store.items(),
-                                            total=len(arc_store),
-                                            desc="  routes", unit="route"):
+        for (pname, o, d), arcs in progress(
+            arc_store.items(), total=len(arc_store), desc="  routes", unit="route"
+        ):
             if pname not in profiles or not arcs:
                 continue
             try:
@@ -109,14 +113,16 @@ def accumulate_edge_usage(graph, arc_store: dict, pairs_df: pd.DataFrame,
             eids = arc_edge[arcs]
             lens = arc_len[arcs]
             share = lens / total_len if total_len > 0 else np.zeros_like(lens)
-            for eid, sh in zip(eids, share):
+            for eid, sh in zip(eids, share, strict=False):
                 eid = int(eid)
                 seen_pairs[eid].add((o, d))
-                endpoints[eid].add(o); endpoints[eid].add(d)
+                endpoints[eid].add(o)
+                endpoints[eid].add(d)
                 if saved > 0:
                     climb_saved[eid] += saved * sh
                 if eff is not None and np.isfinite(eff):
-                    eff_sum[eid] += float(eff); eff_n[eid] += 1
+                    eff_sum[eid] += float(eff)
+                    eff_n[eid] += 1
 
     for eid, s in seen_pairs.items():
         pair_count[eid] = len(s)
@@ -126,14 +132,17 @@ def accumulate_edge_usage(graph, arc_store: dict, pairs_df: pd.DataFrame,
 
     rows = []
     for eid, n in pair_count.items():
-        rows.append({
-            "edge_id": eid, "mode": mode,
-            "pair_count": n,
-            "neighborhood_span": len(endpoints[eid]),
-            "climb_saved_m": climb_saved.get(eid, 0.0),
-            "detour_efficiency": (eff_sum[eid] / eff_n[eid]) if eff_n[eid] else 0.0,
-            "pareto_count": pareto_count.get(eid, 0),
-        })
+        rows.append(
+            {
+                "edge_id": eid,
+                "mode": mode,
+                "pair_count": n,
+                "neighborhood_span": len(endpoints[eid]),
+                "climb_saved_m": climb_saved.get(eid, 0.0),
+                "detour_efficiency": (eff_sum[eid] / eff_n[eid]) if eff_n[eid] else 0.0,
+                "pareto_count": pareto_count.get(eid, 0),
+            }
+        )
     df = pd.DataFrame(rows)
     log.info("  %d edges used by at least one climb-averse route", len(df))
     return df
@@ -141,9 +150,20 @@ def accumulate_edge_usage(graph, arc_store: dict, pairs_df: pd.DataFrame,
 
 def score_edges(usage: pd.DataFrame, edges, cfg=ANALYSIS) -> pd.DataFrame:
     """Combine usage terms into the corridor-importance score."""
-    cols = ["edge_id", "name", "cls", "length_m", "max_abs_grade",
-            "avg_grade_fwd", "cum_gain_fwd", "elev_min", "elev_max",
-            "low_stress", "bike_facility", "geometry"]
+    cols = [
+        "edge_id",
+        "name",
+        "cls",
+        "length_m",
+        "max_abs_grade",
+        "avg_grade_fwd",
+        "cum_gain_fwd",
+        "elev_min",
+        "elev_max",
+        "low_stress",
+        "bike_facility",
+        "geometry",
+    ]
     if "grade_reliable" in edges.columns:
         cols.append("grade_reliable")
     df = usage.merge(edges[cols], on="edge_id", how="left")
@@ -154,10 +174,9 @@ def score_edges(usage: pd.DataFrame, edges, cfg=ANALYSIS) -> pd.DataFrame:
     # maximum-grade test is applied only where the edge is long enough for
     # that maximum to mean anything; short stubs are judged on average grade,
     # so a 5 m DEM artefact cannot disqualify an otherwise flat block.
-    df["flat_enough"] = (
-        (df["avg_grade_fwd"].abs() <= cfg.corridor_max_avg_grade)
-        & (~df["grade_reliable"].fillna(True)
-           | (df["max_abs_grade"] <= cfg.corridor_max_edge_grade)))
+    df["flat_enough"] = (df["avg_grade_fwd"].abs() <= cfg.corridor_max_avg_grade) & (
+        ~df["grade_reliable"].fillna(True) | (df["max_abs_grade"] <= cfg.corridor_max_edge_grade)
+    )
 
     cs = df["climb_saved_m"].to_numpy(dtype="float64")
     denom = np.percentile(cs[cs > 0], 90) if (cs > 0).any() else 1.0
@@ -165,8 +184,7 @@ def score_edges(usage: pd.DataFrame, edges, cfg=ANALYSIS) -> pd.DataFrame:
 
     pc = df["pair_count"].to_numpy(dtype="float64")
     ns = df["neighborhood_span"].to_numpy(dtype="float64")
-    df["score"] = (np.log1p(pc) * np.log1p(ns)
-                   * (1.0 + df["climb_saved_norm"].to_numpy()))
+    df["score"] = np.log1p(pc) * np.log1p(ns) * (1.0 + df["climb_saved_norm"].to_numpy())
     df.loc[~df["flat_enough"], "score"] = 0.0
     return df
 
@@ -188,8 +206,9 @@ def _canonical_name(names) -> str:
     return " - ".join(top)
 
 
-def _bridge_gaps(core: set[int], candidate_edges, edges, max_gap_edges: int = 3,
-                 max_gap_m: float = 220.0) -> set[int]:
+def _bridge_gaps(
+    core: set[int], candidate_edges, edges, max_gap_edges: int = 3, max_gap_m: float = 220.0
+) -> set[int]:
     """Close short gaps between high-scoring components along the same street.
 
     Thresholding a continuous corridor edge-by-edge inevitably punches holes
@@ -226,8 +245,7 @@ def _bridge_gaps(core: set[int], candidate_edges, edges, max_gap_edges: int = 3,
     seen_pairs = set()
     for src in core_nodes:
         # bounded BFS through gap-eligible edges only
-        lengths, paths = nx.single_source_dijkstra(
-            gap_g, src, cutoff=max_gap_m, weight="weight")
+        lengths, paths = nx.single_source_dijkstra(gap_g, src, cutoff=max_gap_m, weight="weight")
         for dst, path in paths.items():
             if dst not in comp_of or comp_of[dst] == comp_of[src]:
                 continue
@@ -237,7 +255,7 @@ def _bridge_gaps(core: set[int], candidate_edges, edges, max_gap_edges: int = 3,
             if key in seen_pairs:
                 continue
             seen_pairs.add(key)
-            for a, b in zip(path[:-1], path[1:]):
+            for a, b in zip(path[:-1], path[1:], strict=False):
                 added.add(int(gap_g[a][b]["edge_id"]))
     return added
 
@@ -265,48 +283,60 @@ def _merge_same_street(records: list[dict], max_join_m: float = 600.0) -> list[d
             for grp in groups:
                 if dominant(grp[0]) != key:
                     continue
-                if any(rec["geometry"].distance(o["geometry"]) <= max_join_m
-                       for o in grp):
-                    grp.append(rec); placed = True; break
+                if any(rec["geometry"].distance(o["geometry"]) <= max_join_m for o in grp):
+                    grp.append(rec)
+                    placed = True
+                    break
         if not placed:
             groups.append([rec])
 
     merged = []
     for grp in groups:
         if len(grp) == 1:
-            merged.append(grp[0]); continue
+            merged.append(grp[0])
+            continue
         total_len = sum(g["length_m"] for g in grp)
         w = [g["length_m"] / total_len for g in grp]
         base = dict(grp[0])
-        base.update({
-            "geometry": unary_union([g["geometry"] for g in grp]),
-            "n_edges": sum(g["n_edges"] for g in grp),
-            "length_m": total_len,
-            "length_km": total_len / 1000.0,
-            "total_score": sum(g["total_score"] for g in grp),
-            "mean_score": sum(g["mean_score"] * wi for g, wi in zip(grp, w)),
-            "pair_count_max": max(g["pair_count_max"] for g in grp),
-            "neighborhood_span": max(g["neighborhood_span"] for g in grp),
-            "climb_saved_m": sum(g["climb_saved_m"] for g in grp),
-            "mean_abs_grade": sum(g["mean_abs_grade"] * wi for g, wi in zip(grp, w)),
-            "max_grade": max(g["max_grade"] for g in grp),
-            "elev_min_m": min(g["elev_min_m"] for g in grp),
-            "elev_max_m": max(g["elev_max_m"] for g in grp),
-            "gain_per_km": sum(g["gain_per_km"] * wi for g, wi in zip(grp, w)),
-            "low_stress_share": sum(g["low_stress_share"] * wi
-                                    for g, wi in zip(grp, w)),
-            "street_names": "; ".join(sorted({n for g in grp
-                                              for n in g["street_names"].split("; ")
-                                              if n})),
-            "n_pieces": len(grp),
-        })
+        base.update(
+            {
+                "geometry": unary_union([g["geometry"] for g in grp]),
+                "n_edges": sum(g["n_edges"] for g in grp),
+                "length_m": total_len,
+                "length_km": total_len / 1000.0,
+                "total_score": sum(g["total_score"] for g in grp),
+                "mean_score": sum(g["mean_score"] * wi for g, wi in zip(grp, w, strict=False)),
+                "pair_count_max": max(g["pair_count_max"] for g in grp),
+                "neighborhood_span": max(g["neighborhood_span"] for g in grp),
+                "climb_saved_m": sum(g["climb_saved_m"] for g in grp),
+                "mean_abs_grade": sum(
+                    g["mean_abs_grade"] * wi for g, wi in zip(grp, w, strict=False)
+                ),
+                "max_grade": max(g["max_grade"] for g in grp),
+                "elev_min_m": min(g["elev_min_m"] for g in grp),
+                "elev_max_m": max(g["elev_max_m"] for g in grp),
+                "gain_per_km": sum(g["gain_per_km"] * wi for g, wi in zip(grp, w, strict=False)),
+                "low_stress_share": sum(
+                    g["low_stress_share"] * wi for g, wi in zip(grp, w, strict=False)
+                ),
+                "street_names": "; ".join(
+                    sorted({n for g in grp for n in g["street_names"].split("; ") if n})
+                ),
+                "n_pieces": len(grp),
+            }
+        )
         base["elev_range_m"] = base["elev_max_m"] - base["elev_min_m"]
         merged.append(base)
     return merged
 
 
-def merge_corridors(scored: pd.DataFrame, edges, cfg=ANALYSIS,
-                    quantile: float | None = None, grow_factor: float = 0.45):
+def merge_corridors(
+    scored: pd.DataFrame,
+    edges,
+    cfg=ANALYSIS,
+    quantile: float | None = None,
+    grow_factor: float = 0.45,
+):
     """Group high-scoring edges into contiguous, named corridors."""
     import geopandas as gpd
     import networkx as nx
@@ -315,28 +345,32 @@ def merge_corridors(scored: pd.DataFrame, edges, cfg=ANALYSIS,
     quantile = cfg.corridor_score_quantile if quantile is None else quantile
     pos = scored[scored["score"] > 0]
     if pos.empty:
-        return gpd.GeoDataFrame(columns=["corridor_id", "geometry"],
-                                geometry="geometry", crs=edges.crs)
+        return gpd.GeoDataFrame(
+            columns=["corridor_id", "geometry"], geometry="geometry", crs=edges.crs
+        )
     cut = float(np.quantile(pos["score"], quantile))
     core = set(scored.loc[scored["score"] >= cut, "edge_id"].astype(int))
-    eligible = set(scored.loc[(scored["score"] >= cut * grow_factor)
-                              & scored["flat_enough"], "edge_id"].astype(int))
-    log.info("corridor threshold: score >= %.2f (q%.2f) keeps %d core edges",
-             cut, quantile, len(core))
+    eligible = set(
+        scored.loc[
+            (scored["score"] >= cut * grow_factor) & scored["flat_enough"], "edge_id"
+        ].astype(int)
+    )
+    log.info(
+        "corridor threshold: score >= %.2f (q%.2f) keeps %d core edges", cut, quantile, len(core)
+    )
 
     bridged = _bridge_gaps(core, eligible, edges)
     if bridged:
         log.info("  gap closing adopted %d additional edges", len(bridged))
     keep_ids = core | bridged
     top = scored[scored["edge_id"].isin(keep_ids)].copy()
-    log.info("  corridor material: %d edges, %.0f km",
-             len(top), top["length_m"].sum() / 1000)
+    log.info("  corridor material: %d edges, %.0f km", len(top), top["length_m"].sum() / 1000)
 
     topo = edges.set_index("edge_id")[["u", "v"]]
     top = top.join(topo, on="edge_id")
 
     g = nx.Graph()
-    for eid, u, v in zip(top["edge_id"], top["u"], top["v"]):
+    for eid, u, v in zip(top["edge_id"], top["u"], top["v"], strict=False):
         g.add_edge(u, v, edge_id=int(eid))
 
     records = []
@@ -354,29 +388,31 @@ def merge_corridors(scored: pd.DataFrame, edges, cfg=ANALYSIS,
             geom = unary_union(geoms)
         names = part["name"].tolist()
         w = part["length_m"].to_numpy(dtype="float64")
-        records.append({
-            "corridor_id": comp_id,
-            "corridor_name": _canonical_name(names),
-            "street_names": "; ".join(sorted(set(_clean_names(names)))),
-            "n_edges": len(part),
-            "length_m": length,
-            "length_km": length / 1000.0,
-            "mean_score": float(part["score"].mean()),
-            "total_score": float(part["score"].sum()),
-            "pair_count_max": int(part["pair_count"].max()),
-            "neighborhood_span": int(part["neighborhood_span"].max()),
-            "climb_saved_m": float(part["climb_saved_m"].sum()),
-            "mean_abs_grade": float((part["avg_grade_fwd"].abs() * w).sum() / w.sum()),
-            "max_grade": float(part["max_abs_grade"].max()),
-            "elev_min_m": float(part["elev_min"].min()),
-            "elev_max_m": float(part["elev_max"].max()),
-            "elev_range_m": float(part["elev_max"].max() - part["elev_min"].min()),
-            "gain_per_km": float(part["cum_gain_fwd"].sum() / (length / 1000.0)),
-            "low_stress_share": float((part["low_stress"] * w).sum() / w.sum()),
-            "mode": part["mode"].iloc[0],
-            "n_pieces": 1,
-            "geometry": geom,
-        })
+        records.append(
+            {
+                "corridor_id": comp_id,
+                "corridor_name": _canonical_name(names),
+                "street_names": "; ".join(sorted(set(_clean_names(names)))),
+                "n_edges": len(part),
+                "length_m": length,
+                "length_km": length / 1000.0,
+                "mean_score": float(part["score"].mean()),
+                "total_score": float(part["score"].sum()),
+                "pair_count_max": int(part["pair_count"].max()),
+                "neighborhood_span": int(part["neighborhood_span"].max()),
+                "climb_saved_m": float(part["climb_saved_m"].sum()),
+                "mean_abs_grade": float((part["avg_grade_fwd"].abs() * w).sum() / w.sum()),
+                "max_grade": float(part["max_abs_grade"].max()),
+                "elev_min_m": float(part["elev_min"].min()),
+                "elev_max_m": float(part["elev_max"].max()),
+                "elev_range_m": float(part["elev_max"].max() - part["elev_min"].min()),
+                "gain_per_km": float(part["cum_gain_fwd"].sum() / (length / 1000.0)),
+                "low_stress_share": float((part["low_stress"] * w).sum() / w.sum()),
+                "mode": part["mode"].iloc[0],
+                "n_pieces": 1,
+                "geometry": geom,
+            }
+        )
 
     records = _merge_same_street(records)
     records = [r for r in records if r["length_m"] >= cfg.corridor_min_length_m]
@@ -384,24 +420,29 @@ def merge_corridors(scored: pd.DataFrame, edges, cfg=ANALYSIS,
     if len(gdf):
         gdf = gdf.sort_values("total_score", ascending=False).reset_index(drop=True)
         gdf["corridor_id"] = np.arange(len(gdf))
-    log.info("merged into %d corridors >= %.0f m", len(gdf),
-             cfg.corridor_min_length_m)
+    log.info("merged into %d corridors >= %.0f m", len(gdf), cfg.corridor_min_length_m)
     return gdf
 
 
 def attribute_corridors(corridors, neighborhoods):
     """Add the list of neighborhoods each corridor passes through."""
     import geopandas as gpd
+
     if corridors.empty:
         corridors["neighborhoods"] = []
         return corridors
-    joined = gpd.sjoin(corridors[["corridor_id", "geometry"]],
-                       neighborhoods[["neighborhood", "geometry"]],
-                       how="left", predicate="intersects")
-    nb = (joined.groupby("corridor_id")["neighborhood"]
-          .apply(lambda s: "; ".join(sorted({x for x in s if isinstance(x, str)}))))
-    corridors = corridors.merge(nb.rename("neighborhoods"),
-                                left_on="corridor_id", right_index=True, how="left")
+    joined = gpd.sjoin(
+        corridors[["corridor_id", "geometry"]],
+        neighborhoods[["neighborhood", "geometry"]],
+        how="left",
+        predicate="intersects",
+    )
+    nb = joined.groupby("corridor_id")["neighborhood"].apply(
+        lambda s: "; ".join(sorted({x for x in s if isinstance(x, str)}))
+    )
+    corridors = corridors.merge(
+        nb.rename("neighborhoods"), left_on="corridor_id", right_index=True, how="left"
+    )
     return corridors
 
 
@@ -429,8 +470,7 @@ def corridor_endpoints(corridors):
             rows.append((np.nan,) * 4)
             continue
         if isinstance(g, MultiLineString):
-            pts = [c for line in g.geoms
-                   for c in (line.coords[0], line.coords[-1])]
+            pts = [c for line in g.geoms for c in (line.coords[0], line.coords[-1])]
         else:
             pts = [g.coords[0], g.coords[-1]]
         arr = np.asarray(pts)[:, :2]
@@ -438,8 +478,7 @@ def corridor_endpoints(corridors):
         i, j = np.unravel_index(np.argmax(d2), d2.shape)
         a = tr.transform(*arr[i])
         b = tr.transform(*arr[j])
-        rows.append((round(a[0], 6), round(a[1], 6),
-                     round(b[0], 6), round(b[1], 6)))
+        rows.append((round(a[0], 6), round(a[1], 6), round(b[0], 6), round(b[1], 6)))
     corridors = corridors.copy()
     corridors["end_a_lon"] = [r[0] for r in rows]
     corridors["end_a_lat"] = [r[1] for r in rows]
@@ -448,8 +487,9 @@ def corridor_endpoints(corridors):
     return corridors
 
 
-def run_corridor_analysis(graphs: dict, arc_store: dict, pairs_df: pd.DataFrame,
-                          edges, neighborhoods, force: bool = False):
+def run_corridor_analysis(
+    graphs: dict, arc_store: dict, pairs_df: pd.DataFrame, edges, neighborhoods, force: bool = False
+):
     """Full corridor pipeline across modes."""
     import geopandas as gpd
 
@@ -469,13 +509,13 @@ def run_corridor_analysis(graphs: dict, arc_store: dict, pairs_df: pd.DataFrame,
 
     scores = pd.concat(all_scores, ignore_index=True)
     corridors = pd.concat(all_corridors, ignore_index=True)
-    corridors["corridor_uid"] = [f"{m}-{i}" for i, m in
-                                 zip(range(len(corridors)), corridors["mode"])]
+    corridors["corridor_uid"] = [
+        f"{m}-{i}" for i, m in zip(range(len(corridors)), corridors["mode"], strict=False)
+    ]
 
     scores.drop(columns=["geometry"]).to_parquet(EDGE_SCORES_PARQUET)
     corridors.to_file(CORRIDORS_GPKG, driver="GPKG")
     corridors.to_crs("EPSG:4326").to_file(CORRIDORS_GEOJSON, driver="GeoJSON")
     corridors.drop(columns=["geometry"]).to_csv(CORRIDORS_CSV, index=False)
-    log.info("wrote %s, %s, %s", CORRIDORS_GPKG.name, CORRIDORS_GEOJSON.name,
-             CORRIDORS_CSV.name)
+    log.info("wrote %s, %s, %s", CORRIDORS_GPKG.name, CORRIDORS_GEOJSON.name, CORRIDORS_CSV.name)
     return corridors, scores

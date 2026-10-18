@@ -1,14 +1,24 @@
 """Tests for access-rule interpretation and graph construction."""
+
 import numpy as np
 
 from sf_flat_routes.network import _as_dict, _as_list, _flags, evaluate_access
 
 
-def rule(access_type, mode=None, heading=None, during=None, between=None,
-         recognized=None, using=None):
-    return {"access_type": access_type, "between": between,
-            "when": {"mode": mode, "heading": heading, "during": during,
-                     "recognized": recognized, "using": using}}
+def rule(
+    access_type, mode=None, heading=None, during=None, between=None, recognized=None, using=None
+):
+    return {
+        "access_type": access_type,
+        "between": between,
+        "when": {
+            "mode": mode,
+            "heading": heading,
+            "during": during,
+            "recognized": recognized,
+            "using": using,
+        },
+    }
 
 
 def test_no_restrictions_means_allowed():
@@ -22,12 +32,13 @@ def test_one_way_is_a_backward_denial_for_all_modes():
 
 
 def test_contraflow_bike_lane_cancels_the_one_way():
-    rules = [rule("denied", heading="backward"),
-             rule("allowed", mode=["bicycle"], heading="backward")]
+    rules = [
+        rule("denied", heading="backward"),
+        rule("allowed", mode=["bicycle"], heading="backward"),
+    ]
     assert not evaluate_access(rules, "bicycle")["oneway_forward_only"]
     # ... but motor-vehicle-style one-way still stands for other modes
-    assert evaluate_access([rule("denied", heading="backward")],
-                           "foot")["oneway_forward_only"]
+    assert evaluate_access([rule("denied", heading="backward")], "foot")["oneway_forward_only"]
 
 
 def test_mode_specific_denial_only_affects_that_mode():
@@ -37,8 +48,7 @@ def test_mode_specific_denial_only_affects_that_mode():
 
 
 def test_designated_counts_as_permitted():
-    assert evaluate_access([rule("designated", mode=["bicycle"])],
-                           "bicycle")["allowed"]
+    assert evaluate_access([rule("designated", mode=["bicycle"])], "bicycle")["allowed"]
 
 
 def test_private_access_is_not_routable_for_through_travel():
@@ -71,10 +81,12 @@ def test_a_mode_specific_permit_outranks_a_later_general_restriction():
     """The Slow Street shape, exactly as Overture carries it for Cabrillo
     Street: an all-modes destination-only rule comes *after* the explicit
     foot and bicycle permits and must not override them."""
-    rules = [rule("allowed", mode=["foot"]),
-             rule("designated", mode=["bicycle"]),
-             rule("allowed", mode=["motor_vehicle"], using=["at_destination"]),
-             rule("allowed", using=["at_destination"])]
+    rules = [
+        rule("allowed", mode=["foot"]),
+        rule("designated", mode=["bicycle"]),
+        rule("allowed", mode=["motor_vehicle"], using=["at_destination"]),
+        rule("allowed", using=["at_destination"]),
+    ]
     for mode in ("foot", "bicycle"):
         r = evaluate_access(rules, mode)
         assert r["allowed"], mode
@@ -82,8 +94,10 @@ def test_a_mode_specific_permit_outranks_a_later_general_restriction():
 
 
 def test_a_general_restriction_still_applies_without_a_mode_permit():
-    rules = [rule("allowed", mode=["motor_vehicle"], using=["at_destination"]),
-             rule("allowed", using=["at_destination"])]
+    rules = [
+        rule("allowed", mode=["motor_vehicle"], using=["at_destination"]),
+        rule("allowed", using=["at_destination"]),
+    ]
     assert not evaluate_access(rules, "foot")["allowed"]
 
 
@@ -94,8 +108,7 @@ def test_a_mode_specific_denial_outranks_an_earlier_general_permit():
 
 
 def test_motor_vehicle_denial_does_not_block_walking_or_cycling():
-    rules = [rule("allowed", mode=["foot", "bicycle"]),
-             rule("denied", mode=["motor_vehicle"])]
+    rules = [rule("allowed", mode=["foot", "bicycle"]), rule("denied", mode=["motor_vehicle"])]
     assert evaluate_access(rules, "foot")["allowed"]
     assert evaluate_access(rules, "bicycle")["allowed"]
 
@@ -123,8 +136,9 @@ def test_as_dict_rejects_non_mappings():
 
 
 def test_flags_collects_values_from_nested_arrays():
-    rf = np.array([{"values": np.array(["is_bridge"], dtype=object)},
-                   {"values": ["is_link"]}], dtype=object)
+    rf = np.array(
+        [{"values": np.array(["is_bridge"], dtype=object)}, {"values": ["is_link"]}], dtype=object
+    )
     assert _flags(rf) == {"is_bridge", "is_link"}
 
 
@@ -138,15 +152,20 @@ import pytest  # noqa: E402
 from sf_flat_routes.config import PROCESSED_DIR  # noqa: E402
 
 
-@pytest.mark.skipif(not (PROCESSED_DIR / "edges_metrics.parquet").exists(),
-                    reason="processed network not built")
+@pytest.mark.needs_data
+@pytest.mark.skipif(
+    not (PROCESSED_DIR / "edges_metrics.parquet").exists(), reason="processed network not built"
+)
 def test_slow_streets_are_walkable_and_bikeable():
     """Cabrillo, Page, Shotwell and 12th Avenue are SF Slow Streets: closed
     to through traffic, open to everyone else. The access parser once read
     their all-modes destination rule as closing them to walking."""
     import pandas as pd
-    e = pd.read_parquet(PROCESSED_DIR / "edges_metrics.parquet",
-                        columns=["name", "cls", "walk_ok", "bike_ok", "length_m"])
+
+    e = pd.read_parquet(
+        PROCESSED_DIR / "edges_metrics.parquet",
+        columns=["name", "cls", "walk_ok", "bike_ok", "length_m"],
+    )
     for street in ("Cabrillo Street", "Page Street", "Shotwell Street"):
         s = e[(e["name"] == street) & (e["cls"] == "residential")]
         assert len(s) > 20, street

@@ -1,17 +1,17 @@
 """Tests for the browser payload: quantisation, bundling and parity."""
+
 import base64
 import gzip
 
 import numpy as np
 import pytest
 
-from sf_flat_routes.webgraph import (CM, DM, GRADE_Q, _b64, _i16, _u16,
-                                     bundle, encode_polyline)
+from sf_flat_routes.webgraph import CM, DM, GRADE_Q, _b64, _i16, _u16, bundle, encode_polyline
 
 
 def decode_polyline(s, precision=5):
     """Reference decoder, mirroring the JavaScript in the map."""
-    factor = 10 ** precision
+    factor = 10**precision
     index = lat = lon = 0
     out = []
     while index < len(s):
@@ -20,7 +20,7 @@ def decode_polyline(s, precision=5):
             while True:
                 b = ord(s[index]) - 63
                 index += 1
-                result |= (b & 0x1f) << shift
+                result |= (b & 0x1F) << shift
                 shift += 5
                 if b < 0x20:
                     break
@@ -76,11 +76,15 @@ def test_b64_round_trips_a_typed_array():
 
 # ------------------------------------------------------------------ polyline
 def test_polyline_round_trips_within_precision():
-    coords = [(-122.41942, 37.77493), (-122.42500, 37.77812),
-              (-122.43111, 37.78001), (-122.41000, 37.76000)]
+    coords = [
+        (-122.41942, 37.77493),
+        (-122.42500, 37.77812),
+        (-122.43111, 37.78001),
+        (-122.41000, 37.76000),
+    ]
     back = decode_polyline(encode_polyline(coords))
     assert len(back) == len(coords)
-    for (x0, y0), (x1, y1) in zip(coords, back):
+    for (x0, y0), (x1, y1) in zip(coords, back, strict=False):
         assert abs(x0 - x1) < 2e-5 and abs(y0 - y1) < 2e-5
 
 
@@ -98,18 +102,18 @@ def test_bundle_round_trips_arrays_and_strings():
         "b": np.full(30, 7, dtype="<u2"),
         "c": np.array([-3, 0, 9], dtype="<i2"),
     }
-    out = bundle({"arrays": arrays, "meta": {"hello": "world"}},
-                 {"txt": "some text", "more": "ünïcode"})
+    out = bundle(
+        {"arrays": arrays, "meta": {"hello": "world"}}, {"txt": "some text", "more": "ünïcode"}
+    )
     raw = gzip.decompress(base64.b64decode(out["b64"]))
     assert len(raw) == out["manifest"]["bytes"]
     for name, arr in arrays.items():
         m = out["manifest"]["arrays"][name]
-        view = np.frombuffer(raw, dtype="<" + m["t"], count=m["n"],
-                             offset=m["o"])
+        view = np.frombuffer(raw, dtype="<" + m["t"], count=m["n"], offset=m["o"])
         assert np.array_equal(view, arr)
     for name, text in (("txt", "some text"), ("more", "ünïcode")):
         m = out["manifest"]["strings"][name]
-        assert raw[m["o"]:m["o"] + m["b"]].decode("utf-8") == text
+        assert raw[m["o"] : m["o"] + m["b"]].decode("utf-8") == text
     assert out["meta"] == {"hello": "world"}
 
 
@@ -118,7 +122,8 @@ def test_bundle_offsets_are_contiguous_and_ordered():
     out = bundle({"arrays": arrays, "meta": {}}, {"s": "x" * 17})
     entries = sorted(
         [(m["o"], m["n"] * 4) for m in out["manifest"]["arrays"].values()]
-        + [(m["o"], m["b"]) for m in out["manifest"]["strings"].values()])
+        + [(m["o"], m["b"]) for m in out["manifest"]["strings"].values()]
+    )
     pos = 0
     for off, nbytes in entries:
         assert off == pos

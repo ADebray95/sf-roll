@@ -15,6 +15,7 @@ exists is not rebuilt.
 
     python -m sf_flat_routes sensitivity            # ~30 min on 4 cores
 """
+
 from __future__ import annotations
 
 import json
@@ -27,8 +28,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from .config import ANALYSIS, DATA_DIR, ELEVATION, OUTPUT_DIR, PROJECT_ROOT
-from .utils import get_logger, step
+from sf_flat_routes.config import ANALYSIS, DATA_DIR, ELEVATION, OUTPUT_DIR, PROJECT_ROOT
+from sf_flat_routes.utils import get_logger, step
 
 log = get_logger("sf_flat_routes.sensitivity")
 
@@ -62,8 +63,7 @@ GRID = [
 
 _STEEP = ["Filbert Street", "Jones Street", "22nd Street", "Bradford Street"]
 _FLAT = ["The Embarcadero", "Valencia Street", "Market Street"]
-_DRIVABLE = ("residential", "tertiary", "secondary", "primary", "unclassified",
-             "living_street")
+_DRIVABLE = ("residential", "tertiary", "secondary", "primary", "unclassified", "living_street")
 
 
 # --------------------------------------------------------------------------
@@ -72,13 +72,14 @@ _DRIVABLE = ("residential", "tertiary", "secondary", "primary", "unclassified",
 def summarize_current_run(tag: str) -> Path:
     """Write ``outputs/summary.json`` for the configuration now in force."""
     import geopandas as gpd
-    from .config import MIN_RELIABLE_GRADE_LENGTH_M
-    from .corridors import CORRIDORS_GPKG
-    from .pairs import PAIRS_PARQUET
-    from .passes import PASSES_GEOJSON
-    from .pipeline import build_context
-    from .utils import configure_gdal_for_proxy
-    from .validate import run_validation
+
+    from sf_flat_routes.config import MIN_RELIABLE_GRADE_LENGTH_M
+    from sf_flat_routes.corridors import CORRIDORS_GPKG
+    from sf_flat_routes.pairs import PAIRS_PARQUET
+    from sf_flat_routes.passes import PASSES_GEOJSON
+    from sf_flat_routes.pipeline import build_context
+    from sf_flat_routes.utils import configure_gdal_for_proxy
+    from sf_flat_routes.validate import run_validation
 
     configure_gdal_for_proxy()
     ctx = build_context()
@@ -87,12 +88,16 @@ def summarize_current_run(tag: str) -> Path:
     passes = gpd.read_file(PASSES_GEOJSON)
     edges = ctx.edges
 
-    out: dict = {"tag": tag,
-                 "params": {"sample_spacing_m": ELEVATION.sample_spacing_m,
-                            "smooth_window_m": ELEVATION.smooth_window_m,
-                            "gain_deadband_m": ELEVATION.gain_deadband_m,
-                            "dem_sigma_m": ELEVATION.dem_sigma_m,
-                            "point_rank": ANALYSIS.point_rank}}
+    out: dict = {
+        "tag": tag,
+        "params": {
+            "sample_spacing_m": ELEVATION.sample_spacing_m,
+            "smooth_window_m": ELEVATION.smooth_window_m,
+            "gain_deadband_m": ELEVATION.gain_deadband_m,
+            "dem_sigma_m": ELEVATION.dem_sigma_m,
+            "point_rank": ANALYSIS.point_rank,
+        },
+    }
 
     walk = pairs[pairs["mode"] == "walk"]
     for pname, g in walk.groupby("profile"):
@@ -103,12 +108,14 @@ def summarize_current_run(tag: str) -> Path:
         out[f"{pname}_dist_mi"] = float(g["distance_m"].mean() / 1609.344)
 
     km = edges[edges["walk_ok"]]["length_m"].sum() / 1000
-    out["network_gain_per_km"] = float(
-        edges[edges["walk_ok"]]["cum_gain_fwd"].sum() / km)
+    out["network_gain_per_km"] = float(edges[edges["walk_ok"]]["cum_gain_fwd"].sum() / km)
 
     for nm in _STEEP:
-        sub = edges[(edges["name"] == nm) & edges["cls"].isin(_DRIVABLE)
-                    & (edges["length_m"] >= MIN_RELIABLE_GRADE_LENGTH_M)]
+        sub = edges[
+            (edges["name"] == nm)
+            & edges["cls"].isin(_DRIVABLE)
+            & (edges["length_m"] >= MIN_RELIABLE_GRADE_LENGTH_M)
+        ]
         out[f"grade_{nm}"] = float(sub["max_abs_grade"].max() * 100) if len(sub) else np.nan
     for nm in _FLAT:
         sub = edges[edges["name"] == nm]
@@ -169,14 +176,20 @@ def _run(tag: str, overrides: dict, force: bool = False) -> dict:
     log_path = run_dir / "run.log"
     t0 = time.time()
     with open(log_path, "w") as fh:
-        for cmd in (["build-network", "--force"], ["analyze", "--force"],
-                    ["summarize", "--tag", tag]):
-            rc = subprocess.call([sys.executable, "-m", "sf_flat_routes", *cmd],
-                                 env=env, stdout=fh, stderr=subprocess.STDOUT,
-                                 cwd=str(PROJECT_ROOT))
+        for cmd in (
+            ["build-network", "--force"],
+            ["analyze", "--force"],
+            ["summarize", "--tag", tag],
+        ):
+            rc = subprocess.call(
+                [sys.executable, "-m", "sf_flat_routes", *cmd],
+                env=env,
+                stdout=fh,
+                stderr=subprocess.STDOUT,
+                cwd=str(PROJECT_ROOT),
+            )
             if rc:
-                raise RuntimeError(f"[{tag}] `{' '.join(cmd)}` failed (rc={rc}); "
-                                   f"see {log_path}")
+                raise RuntimeError(f"[{tag}] `{' '.join(cmd)}` failed (rc={rc}); see {log_path}")
     log.info("[%s] done in %.0fs", tag, time.time() - t0)
     return json.loads(summary.read_text())
 
@@ -215,7 +228,7 @@ def _corridor_material(tag: str) -> dict | None:
         return {}
     cut = float(np.quantile(pos["score"], ANALYSIS.corridor_score_quantile))
     top = s[s["score"] >= cut]
-    return dict(zip(top["edge_id"].astype(int), top["length_m"].astype(float)))
+    return dict(zip(top["edge_id"].astype(int), top["length_m"].astype(float), strict=False))
 
 
 def _edge_overlap(a: dict | None, b: dict | None) -> float:
@@ -228,8 +241,8 @@ def _edge_overlap(a: dict | None, b: dict | None) -> float:
     """
     if a is None or b is None:
         return float("nan")
-    inter = sum(l for e, l in a.items() if e in b)
-    union = sum(a.values()) + sum(l for e, l in b.items() if e not in a)
+    inter = sum(length for e, length in a.items() if e in b)
+    union = sum(a.values()) + sum(length for e, length in b.items() if e not in a)
     return 100.0 * inter / union if union else 100.0
 
 
@@ -245,106 +258,139 @@ def _write(df: pd.DataFrame) -> None:
     df["change"] = [why.get(t, "") for t in df.index]
     base_mat = _corridor_material("baseline") if base is not None else None
     base_lead = _lead_streets(base["top_corridors"]) if base is not None else set()
-    df["edge_overlap_pct"] = [_edge_overlap(_corridor_material(t), base_mat)
-                              for t in df.index]
-    df["lead_streets_shared"] = [len(_lead_streets(r["top_corridors"]) & base_lead)
-                                 for _, r in df.iterrows()]
-    df["lead_streets_new"] = ["; ".join(sorted(_lead_streets(r["top_corridors"]) - base_lead))
-                              for _, r in df.iterrows()]
-    df["top_corridor"] = [r["top_corridors"][0] if r["top_corridors"] else ""
-                          for _, r in df.iterrows()]
+    df["edge_overlap_pct"] = [_edge_overlap(_corridor_material(t), base_mat) for t in df.index]
+    df["lead_streets_shared"] = [
+        len(_lead_streets(r["top_corridors"]) & base_lead) for _, r in df.iterrows()
+    ]
+    df["lead_streets_new"] = [
+        "; ".join(sorted(_lead_streets(r["top_corridors"]) - base_lead)) for _, r in df.iterrows()
+    ]
+    df["top_corridor"] = [
+        r["top_corridors"][0] if r["top_corridors"] else "" for _, r in df.iterrows()
+    ]
     flat = df.drop(columns=["top_corridors", "params"], errors="ignore")
     flat.to_csv(SENS_CSV)
 
-    L = ["# Sensitivity analysis", "",
-         "Every configuration below rebuilds the full pipeline -- elevation "
-         "sampling, metrics, 10,080 routes, corridors and passes -- with one "
-         "parameter changed from the baseline. The question is whether the "
-         "findings survive the modelling choices.", "",
-         "Baseline: " + ", ".join(f"{k} = {v:g}" for k, v in BASELINE.items()), "",
-         "## The headline (walking, all 1,260 ordered pairs)", "",
-         "| Configuration | Change | Flattest: extra distance | Flattest: "
-         "climbing avoided | Shortest: mean climb | Flattest: mean climb | "
-         "Grade-averse: mean steepest |",
-         "|---|---|---|---|---|---|---|"]
+    L = [
+        "# Sensitivity analysis",
+        "",
+        "Every configuration below rebuilds the full pipeline -- elevation "
+        "sampling, metrics, 10,080 routes, corridors and passes -- with one "
+        "parameter changed from the baseline. The question is whether the "
+        "findings survive the modelling choices.",
+        "",
+        "Baseline: " + ", ".join(f"{k} = {v:g}" for k, v in BASELINE.items()),
+        "",
+        "## The headline (walking, all 1,260 ordered pairs)",
+        "",
+        "| Configuration | Change | Flattest: extra distance | Flattest: "
+        "climbing avoided | Shortest: mean climb | Flattest: mean climb | "
+        "Grade-averse: mean steepest |",
+        "|---|---|---|---|---|---|---|",
+    ]
     for tag, r in df.iterrows():
-        L.append(f"| {tag} | {why.get(tag, '')} | "
-                 f"{r['min_climb_detour_pct']:+.0f}% | "
-                 f"{r['min_climb_gain_saved_pct']:.0f}% | "
-                 f"{r['shortest_gain_ft']:.0f} ft | "
-                 f"{r['min_climb_gain_ft']:.0f} ft | "
-                 f"{r['grade_averse_max_grade_pct']:.1f}% |")
+        L.append(
+            f"| {tag} | {why.get(tag, '')} | "
+            f"{r['min_climb_detour_pct']:+.0f}% | "
+            f"{r['min_climb_gain_saved_pct']:.0f}% | "
+            f"{r['shortest_gain_ft']:.0f} ft | "
+            f"{r['min_climb_gain_ft']:.0f} ft | "
+            f"{r['grade_averse_max_grade_pct']:.1f}% |"
+        )
 
-    L += ["", "## Elevation model checks", "",
-          "| Configuration | Filbert St | Jones St | 22nd St | Bradford St | "
-          "Embarcadero climb/km | Valencia climb/km | Network climb/km | "
-          "DEM RMS vs 1/3\" |", "|---|---|---|---|---|---|---|---|---|"]
+    L += [
+        "",
+        "## Elevation model checks",
+        "",
+        "| Configuration | Filbert St | Jones St | 22nd St | Bradford St | "
+        "Embarcadero climb/km | Valencia climb/km | Network climb/km | "
+        'DEM RMS vs 1/3" |',
+        "|---|---|---|---|---|---|---|---|---|",
+    ]
     for tag, r in df.iterrows():
-        L.append(f"| {tag} | {r['grade_Filbert Street']:.1f}% | "
-                 f"{r['grade_Jones Street']:.1f}% | {r['grade_22nd Street']:.1f}% | "
-                 f"{r['grade_Bradford Street']:.1f}% | "
-                 f"{r['gainkm_The Embarcadero']:.1f} m | "
-                 f"{r['gainkm_Valencia Street']:.1f} m | "
-                 f"{r['network_gain_per_km']:.1f} m | "
-                 f"{r.get('dem_rms_m', float('nan')):.2f} m |")
+        L.append(
+            f"| {tag} | {r['grade_Filbert Street']:.1f}% | "
+            f"{r['grade_Jones Street']:.1f}% | {r['grade_22nd Street']:.1f}% | "
+            f"{r['grade_Bradford Street']:.1f}% | "
+            f"{r['gainkm_The Embarcadero']:.1f} m | "
+            f"{r['gainkm_Valencia Street']:.1f} m | "
+            f"{r['network_gain_per_km']:.1f} m | "
+            f"{r.get('dem_rms_m', float('nan')):.2f} m |"
+        )
     L += ["", "Published: Filbert 31.5%, Jones 29%, 22nd 31.5%, Bradford 41%.", ""]
 
-    L += ["## Corridors, passes and the Wiggle", "",
-          "Corridor overlap is measured on the street itself: the "
-          "length-weighted share of corridor-material edges the run has in "
-          "common with the baseline. Comparing corridor names would be "
-          "misleading, since a merge boundary moving by one block renames a "
-          "corridor without changing where it runs.", "",
-          "| Configuration | Corridors found | Corridor edges shared with "
-          "baseline | Lead streets of the top 12 kept | Streets that enter the "
-          "top 12 | Top corridor | Top pass | Wiggle excess climb (flat / shortest) |",
-          "|---|---|---|---|---|---|---|---|"]
+    L += [
+        "## Corridors, passes and the Wiggle",
+        "",
+        "Corridor overlap is measured on the street itself: the "
+        "length-weighted share of corridor-material edges the run has in "
+        "common with the baseline. Comparing corridor names would be "
+        "misleading, since a merge boundary moving by one block renames a "
+        "corridor without changing where it runs.",
+        "",
+        "| Configuration | Corridors found | Corridor edges shared with "
+        "baseline | Lead streets of the top 12 kept | Streets that enter the "
+        "top 12 | Top corridor | Top pass | Wiggle excess climb (flat / shortest) |",
+        "|---|---|---|---|---|---|---|---|",
+    ]
     for tag, r in df.iterrows():
         top = r["top_corridor"].split(" - ")[0]
-        L.append(f"| {tag} | {int(r['corridor_count'])} | "
-                 f"{r['edge_overlap_pct']:.0f}% | "
-                 f"{int(r['lead_streets_shared'])}/12 | "
-                 f"{r['lead_streets_new'] or '&mdash;'} | "
-                 f"{top} ({r['top_corridor_km']:.1f} km) | "
-                 f"{r.get('top_pass_nbhd','')} {r.get('top_pass_ft', float('nan')):.0f} ft, "
-                 f"{int(r.get('top_pass_pairs', 0))} pairs | "
-                 f"{r.get('wiggle_excess_flat_m', float('nan')):.1f} m / "
-                 f"{r.get('wiggle_excess_shortest_m', float('nan')):.1f} m |")
+        L.append(
+            f"| {tag} | {int(r['corridor_count'])} | "
+            f"{r['edge_overlap_pct']:.0f}% | "
+            f"{int(r['lead_streets_shared'])}/12 | "
+            f"{r['lead_streets_new'] or '&mdash;'} | "
+            f"{top} ({r['top_corridor_km']:.1f} km) | "
+            f"{r.get('top_pass_nbhd', '')} {r.get('top_pass_ft', float('nan')):.0f} ft, "
+            f"{int(r.get('top_pass_pairs', 0))} pairs | "
+            f"{r.get('wiggle_excess_flat_m', float('nan')):.1f} m / "
+            f"{r.get('wiggle_excess_shortest_m', float('nan')):.1f} m |"
+        )
 
     if base is not None and len(df) > 1:
         others = df.drop(index="baseline")
         have_overlap = others["edge_overlap_pct"].notna().any()
-        L += ["", "## Reading it", "",
-              f"- The headline trade (extra distance for climbing avoided on the "
-              f"flattest route) ranges from "
-              f"{others['min_climb_detour_pct'].min():+.0f}% / "
-              f"{others['min_climb_gain_saved_pct'].min():.0f}% to "
-              f"{others['min_climb_detour_pct'].max():+.0f}% / "
-              f"{others['min_climb_gain_saved_pct'].max():.0f}% across every "
-              f"perturbation, against {base['min_climb_detour_pct']:+.0f}% / "
-              f"{base['min_climb_gain_saved_pct']:.0f}% at baseline."]
+        L += [
+            "",
+            "## Reading it",
+            "",
+            f"- The headline trade (extra distance for climbing avoided on the "
+            f"flattest route) ranges from "
+            f"{others['min_climb_detour_pct'].min():+.0f}% / "
+            f"{others['min_climb_gain_saved_pct'].min():.0f}% to "
+            f"{others['min_climb_detour_pct'].max():+.0f}% / "
+            f"{others['min_climb_gain_saved_pct'].max():.0f}% across every "
+            f"perturbation, against {base['min_climb_detour_pct']:+.0f}% / "
+            f"{base['min_climb_gain_saved_pct']:.0f}% at baseline.",
+        ]
         if have_overlap:
-            L += [f"- The corridor material stays "
-              f"{others['edge_overlap_pct'].min():.0f}-"
-              f"{others['edge_overlap_pct'].max():.0f}% the same street, by "
-              f"length, under every perturbation, and "
-              f"{int(others['lead_streets_shared'].min())}-"
-              f"{int(others['lead_streets_shared'].max())} of the baseline's "
-              f"12 lead streets keep their place. What moves is the exact "
-              f"extent and composite name of each corridor, most under the "
-              f"profile smoothing window "
-              f"(**{others['edge_overlap_pct'].idxmin()}**, "
-              f"{others['edge_overlap_pct'].min():.0f}%), and a few "
-              f"borderline streets drift in and out at the margin: "
-              f"{', '.join(sorted({s for v in others['lead_streets_new'] for s in v.split('; ') if s}))}."]
-        L += [f"- The dominant pass is in {base.get('top_pass_nbhd','')} in "
-              f"{int((df['top_pass_nbhd'] == base.get('top_pass_nbhd')).sum())} of "
-              f"{len(df)} configurations.",
-              f"- The Wiggle is discovered as a corridor in "
-              f"{int(df['wiggle_discovered'].fillna(False).sum())} of {len(df)} "
-              f"configurations, and its flat route always wastes less climbing "
-              f"than the shortest one: worst case "
-              f"{df['wiggle_excess_flat_m'].max():.1f} m against "
-              f"{df['wiggle_excess_shortest_m'].min():.1f} m.", ""]
+            drifting = sorted({s for v in others["lead_streets_new"] for s in v.split("; ") if s})
+            L += [
+                f"- The corridor material stays "
+                f"{others['edge_overlap_pct'].min():.0f}-"
+                f"{others['edge_overlap_pct'].max():.0f}% the same street, by "
+                f"length, under every perturbation, and "
+                f"{int(others['lead_streets_shared'].min())}-"
+                f"{int(others['lead_streets_shared'].max())} of the baseline's "
+                f"12 lead streets keep their place. What moves is the exact "
+                f"extent and composite name of each corridor, most under the "
+                f"profile smoothing window "
+                f"(**{others['edge_overlap_pct'].idxmin()}**, "
+                f"{others['edge_overlap_pct'].min():.0f}%), and a few "
+                f"borderline streets drift in and out at the margin: "
+                f"{', '.join(drifting)}."
+            ]
+        L += [
+            f"- The dominant pass is in {base.get('top_pass_nbhd', '')} in "
+            f"{int((df['top_pass_nbhd'] == base.get('top_pass_nbhd')).sum())} of "
+            f"{len(df)} configurations.",
+            f"- The Wiggle is discovered as a corridor in "
+            f"{int(df['wiggle_discovered'].fillna(False).sum())} of {len(df)} "
+            f"configurations, and its flat route always wastes less climbing "
+            f"than the shortest one: worst case "
+            f"{df['wiggle_excess_flat_m'].max():.1f} m against "
+            f"{df['wiggle_excess_shortest_m'].min():.1f} m.",
+            "",
+        ]
     SENS_MD.write_text("\n".join(L))
     log.info("wrote %s and %s", SENS_CSV.name, SENS_MD.name)

@@ -1,0 +1,18 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "import", "unicorn", "oxc"],
+  "categories": {
+    "correctness": "error"
+  },
+  "env": {
+    "browser": true,
+    "es2024": true
+  },
+  "ignorePatterns": [
+    "site/**",
+    "outputs/**",
+    "sf_flat_routes/vendor/**",
+    "node_modules/**",
+    ".venv/**"
+  ]
+}

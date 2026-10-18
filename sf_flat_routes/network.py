@@ -25,6 +25,7 @@ only", in that order; reading them in document order let the final
 all-modes rule close the street to walking, which is the opposite of what a
 Slow Street is.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -32,10 +33,16 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from .config import (BIKE_FORBIDDEN_CLASSES, CRS_GEOGRAPHIC, CRS_PROJECTED,
-                     MODES, NEVER_ROUTABLE_CLASSES, NEVER_ROUTABLE_SUBCLASSES,
-                     PROCESSED_DIR)
-from .utils import get_logger, progress, step
+from sf_flat_routes.config import (
+    BIKE_FORBIDDEN_CLASSES,
+    CRS_GEOGRAPHIC,
+    CRS_PROJECTED,
+    MODES,
+    NEVER_ROUTABLE_CLASSES,
+    NEVER_ROUTABLE_SUBCLASSES,
+    PROCESSED_DIR,
+)
+from sf_flat_routes.utils import get_logger, progress, step
 
 log = get_logger("sf_flat_routes.network")
 
@@ -89,7 +96,7 @@ def _rule_applies(rule: dict, mode: str) -> bool:
     """Does an access rule constrain ``mode``?"""
     modes = _rule_modes(rule)
     if modes is None:
-        return True                      # applies to all modes
+        return True  # applies to all modes
     return bool(modes & _MODE_PARENTS[mode])
 
 
@@ -113,7 +120,7 @@ def evaluate_access(restrictions, mode: str, default: bool = True) -> dict:
     partial = False
 
     rules = [_as_dict(r) for r in _as_list(restrictions)]
-    rules.sort(key=lambda r: 0 if _rule_modes(r) is None else 1)   # stable
+    rules.sort(key=lambda r: 0 if _rule_modes(r) is None else 1)  # stable
     for rule in rules:
         if not _rule_applies(rule, mode):
             continue
@@ -130,7 +137,7 @@ def evaluate_access(restrictions, mode: str, default: bool = True) -> dict:
             if atype == "denied" and heading == "backward":
                 oneway_forward_only = True
             elif atype in _PERMIT and heading == "backward":
-                oneway_forward_only = False   # e.g. contraflow bike lane
+                oneway_forward_only = False  # e.g. contraflow bike lane
             continue
 
         recognized = set(_as_list(when.get("recognized")))
@@ -152,8 +159,12 @@ def evaluate_access(restrictions, mode: str, default: bool = True) -> dict:
             # private/destination restriction read earlier
             restricted = False
 
-    return {"allowed": allowed, "oneway_forward_only": oneway_forward_only,
-            "restricted": restricted, "partial_rules": partial}
+    return {
+        "allowed": allowed,
+        "oneway_forward_only": oneway_forward_only,
+        "restricted": restricted,
+        "partial_rules": partial,
+    }
 
 
 def _flags(road_flags) -> set[str]:
@@ -170,6 +181,7 @@ def _flags(road_flags) -> set[str]:
 def load_segments(path: Path) -> pd.DataFrame:
     """Load the cached Overture segment extract into a DataFrame."""
     import pyarrow.parquet as pq
+
     table = pq.read_table(path)
     log.info("loaded %d raw Overture segments", table.num_rows)
     return table.to_pandas()
@@ -188,7 +200,8 @@ def _base_filter(df: pd.DataFrame) -> pd.DataFrame:
 
     df["flags"] = df["road_flags"].apply(_flags)
     bad = df["flags"].apply(
-        lambda f: bool(f & {"is_abandoned", "is_under_construction", "is_proposed"}))
+        lambda f: bool(f & {"is_abandoned", "is_under_construction", "is_proposed"})
+    )
     df = df[~bad]
     # Freeway ramps are tagged is_link on a motorway-ish class; the class
     # filter already removed motorway_link, but some links hang off trunk
@@ -206,14 +219,20 @@ def _split_geometries(df: pd.DataFrame):
     rows: list[dict] = []
     n_synthetic = 0
 
-    for i, (idx, row) in enumerate(progress(df.iterrows(), desc="  splitting segments",
-                                            total=len(df), unit="seg")):
+    for i, (_idx, row) in enumerate(
+        progress(df.iterrows(), desc="  splitting segments", total=len(df), unit="seg")
+    ):
         line = geoms[i]
         if line is None or line.is_empty or line.length == 0:
             continue
         conns = [_as_dict(c) for c in _as_list(row["connectors"])]
-        cuts = sorted({float(np.clip(c["at"], 0.0, 1.0)): c["connector_id"]
-                       for c in conns if c.get("connector_id")}.items())
+        cuts = sorted(
+            {
+                float(np.clip(c["at"], 0.0, 1.0)): c["connector_id"]
+                for c in conns
+                if c.get("connector_id")
+            }.items()
+        )
         # ensure both ends are nodes
         if not cuts or cuts[0][0] > 1e-9:
             cuts.insert(0, (0.0, f"synth:{row['id']}:start"))
@@ -229,24 +248,29 @@ def _split_geometries(df: pd.DataFrame):
             piece = substring(line, a_at, b_at, normalized=True)
             if piece.is_empty or piece.length == 0:
                 continue
-            rows.append({
-                "segment_id": row["id"],
-                "u": a_id, "v": b_id,
-                "part": k,
-                "start_at": a_at, "end_at": b_at,
-                "cls": row["cls"],
-                "subclass": row["subclass"],
-                "name": _as_dict(row["names"]).get("primary"),
-                "flags": row["flags"],
-                "access_restrictions": row["access_restrictions"],
-                "geometry": piece,
-            })
+            rows.append(
+                {
+                    "segment_id": row["id"],
+                    "u": a_id,
+                    "v": b_id,
+                    "part": k,
+                    "start_at": a_at,
+                    "end_at": b_at,
+                    "cls": row["cls"],
+                    "subclass": row["subclass"],
+                    "name": _as_dict(row["names"]).get("primary"),
+                    "flags": row["flags"],
+                    "access_restrictions": row["access_restrictions"],
+                    "geometry": piece,
+                }
+            )
     log.info("  split into %d edges (%d synthetic end nodes)", len(rows), n_synthetic)
     return rows
 
 
-def build_edges(segments_path: Path, force: bool = False,
-                clip_to_city: bool = True) -> "pd.DataFrame":
+def build_edges(
+    segments_path: Path, force: bool = False, clip_to_city: bool = True
+) -> pd.DataFrame:
     """Produce the undirected edge table with geometry, class and access.
 
     The Overture extract covers a bounding box, which also catches the Marin
@@ -274,7 +298,8 @@ def build_edges(segments_path: Path, force: bool = False,
     log.info("  %d edges after dropping sub-metre slivers", len(gdf))
 
     if clip_to_city:
-        from .neighborhoods import city_boundary
+        from sf_flat_routes.neighborhoods import city_boundary
+
         with step("clipping network to the San Francisco city boundary", log):
             boundary = city_boundary(buffer_m=250.0)
             mid = gdf.geometry.interpolate(0.5, normalized=True)
@@ -300,25 +325,55 @@ def build_edges(segments_path: Path, force: bool = False,
             if mode_name == "bike":
                 ok &= ~gdf["cls"].isin(BIKE_FORBIDDEN_CLASSES)
             gdf[f"{mode_name}_ok"] = ok & gdf[f"{mode_name}_allowed"]
-            log.info("  %s: %d of %d edges routable", mode_name,
-                     int(gdf[f"{mode_name}_ok"].sum()), len(gdf))
+            log.info(
+                "  %s: %d of %d edges routable",
+                mode_name,
+                int(gdf[f"{mode_name}_ok"].sum()),
+                len(gdf),
+            )
 
     # bicycle infrastructure / low-stress proxy (SFMTA data unavailable)
     gdf["bike_facility"] = np.where(
-        gdf["cls"] == "cycleway", "dedicated_cycleway",
-        np.where(gdf["cls"].isin(["path", "footway"]) & gdf["bike_allowed"],
-                 "shared_path",
-                 np.where(gdf["cls"] == "living_street", "living_street",
-                          np.where(gdf["cls"] == "pedestrian", "car_free_street", ""))))
+        gdf["cls"] == "cycleway",
+        "dedicated_cycleway",
+        np.where(
+            gdf["cls"].isin(["path", "footway"]) & gdf["bike_allowed"],
+            "shared_path",
+            np.where(
+                gdf["cls"] == "living_street",
+                "living_street",
+                np.where(gdf["cls"] == "pedestrian", "car_free_street", ""),
+            ),
+        ),
+    )
     gdf["low_stress"] = gdf["bike_facility"].astype(bool) | gdf["cls"].isin(
-        ["residential", "living_street", "pedestrian"])
+        ["residential", "living_street", "pedestrian"]
+    )
 
     gdf["edge_id"] = np.arange(len(gdf), dtype=np.int64)
-    keep = ["edge_id", "segment_id", "u", "v", "part", "cls", "subclass", "name",
-            "length_m", "is_bridge", "is_tunnel", "is_structure",
-            "walk_ok", "walk_oneway", "walk_restricted",
-            "bike_ok", "bike_oneway", "bike_restricted",
-            "bike_facility", "low_stress", "geometry"]
+    keep = [
+        "edge_id",
+        "segment_id",
+        "u",
+        "v",
+        "part",
+        "cls",
+        "subclass",
+        "name",
+        "length_m",
+        "is_bridge",
+        "is_tunnel",
+        "is_structure",
+        "walk_ok",
+        "walk_oneway",
+        "walk_restricted",
+        "bike_ok",
+        "bike_oneway",
+        "bike_restricted",
+        "bike_facility",
+        "low_stress",
+        "geometry",
+    ]
     gdf = gdf[keep]
     gdf.to_parquet(EDGES_PARQUET)
     log.info("wrote %s (%d edges)", EDGES_PARQUET.name, len(gdf))
@@ -331,13 +386,19 @@ def build_edges(segments_path: Path, force: bool = False,
 def largest_component(edges, mode: str):
     """Restrict an edge table to the largest connected component for a mode."""
     import networkx as nx
+
     sub = edges[edges[f"{mode}_ok"]]
     g = nx.Graph()
-    g.add_edges_from(zip(sub["u"], sub["v"]))
+    g.add_edges_from(zip(sub["u"], sub["v"], strict=False))
     if g.number_of_nodes() == 0:
         raise RuntimeError(f"no routable edges for mode {mode}")
     comp = max(nx.connected_components(g), key=len)
     keep = sub["u"].isin(comp) & sub["v"].isin(comp)
-    log.info("mode %s: largest component has %d nodes, %d of %d edges",
-             mode, len(comp), int(keep.sum()), len(sub))
+    log.info(
+        "mode %s: largest component has %d nodes, %d of %d edges",
+        mode,
+        len(comp),
+        int(keep.sum()),
+        len(sub),
+    )
     return sub[keep].copy(), comp
