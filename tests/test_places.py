@@ -92,7 +92,10 @@ def test_place_index_is_compact_and_inside_the_city(index):
     assert max(index["group"]) < len(index["groups"])
     assert min(index["lon"]) >= SF_BBOX[0] and max(index["lon"]) <= SF_BBOX[1]
     assert min(index["lat"]) >= SF_BBOX[2] and max(index["lat"]) <= SF_BBOX[3]
-    assert len(set(index["names"])) == n or len(set(zip(index["names"], index["group"]))) == n
+    assert (
+        len(set(index["names"])) == n
+        or len(set(zip(index["names"], index["group"], strict=False))) == n
+    )
 
 
 @pytest.mark.needs_data
@@ -103,7 +106,9 @@ def test_mapped_features_win_over_the_poi_feed(index):
     the mapped park is the only record that remains under that name."""
     hits = {
         (n, index["groups"][g]): (lo, la)
-        for n, g, lo, la in zip(index["names"], index["group"], index["lon"], index["lat"])
+        for n, g, lo, la in zip(
+            index["names"], index["group"], index["lon"], index["lat"], strict=False
+        )
     }
     assert ("Mission Dolores Park", "park") in hits
     lo, la = hits[("Mission Dolores Park", "park")]

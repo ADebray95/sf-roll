@@ -387,7 +387,7 @@ def make_grade_map(edges, neighborhoods, mode: str = "walk"):
         fig.patch.set_facecolor("#ffffff")
         ax.set_facecolor("#eef3f6")
         neighborhoods.plot(ax=ax, facecolor="#f8f7f4", edgecolor="#d8dde1", linewidth=0.6, zorder=1)
-        for lo, hi in zip(bounds_g[:-1], bounds_g[1:]):
+        for lo, hi in zip(bounds_g[:-1], bounds_g[1:], strict=False):
             sel = net[(net["g"] >= lo) & (net["g"] < hi)]
             if sel.empty:
                 continue

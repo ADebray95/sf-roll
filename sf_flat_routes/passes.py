@@ -119,7 +119,7 @@ def find_basins(
     zv = sub["v"].map(node_z)
     low = sub[(zu <= threshold) & (zv <= threshold)]
     g = nx.Graph()
-    for u, v, L in zip(low["u"], low["v"], low["length_m"]):
+    for u, v, L in zip(low["u"], low["v"], low["length_m"], strict=False):
         if g.has_edge(u, v):
             g[u][v]["length"] = min(g[u][v]["length"], L)
         else:
@@ -443,7 +443,7 @@ def find_barriers(
     arc_edge = graph.table["edge_id"].to_numpy()
     short_use: collections.Counter = collections.Counter()
     flat_use: collections.Counter = collections.Counter()
-    for (pname, o, d), arcs in arc_store.items():
+    for (pname, _o, _d), arcs in arc_store.items():
         if not arcs:
             continue
         target = short_use if pname == profile else flat_use

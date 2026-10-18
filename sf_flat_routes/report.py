@@ -423,7 +423,7 @@ def _pareto(d) -> list[str]:
 
     # citywide: for every pair, how much detour does halving the climb cost?
     rows = []
-    for (o, dst), g in pa.groupby(["origin", "destination"]):
+    for _pair, g in pa.groupby(["origin", "destination"]):
         g = g.sort_values("distance_m")
         s = g.iloc[0]  # the pure-distance anchor
         if s["elev_gain_m"] <= 0:

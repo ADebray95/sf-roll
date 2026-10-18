@@ -226,7 +226,7 @@ def _solve_structure_nodes(
 
     struct = edges[edges["is_structure"]] if subset is None else subset
     adj: dict[str, list[tuple[str, float]]] = collections.defaultdict(list)
-    for u, v, L in zip(struct["u"], struct["v"], struct["length_m"]):
+    for u, v, L in zip(struct["u"], struct["v"], struct["length_m"], strict=False):
         adj[u].append((v, max(L, 1.0)))
         adj[v].append((u, max(L, 1.0)))
     unknown = [n for n in adj if n not in reliable]
@@ -278,7 +278,9 @@ def compute_node_elevations(edges, sampler: DemSampler) -> tuple[dict, set]:
     ys: dict[str, list[float]] = collections.defaultdict(list)
     solid: set[str] = set()
 
-    for u, v, geom, is_struct in zip(edges["u"], edges["v"], edges.geometry, edges["is_structure"]):
+    for u, v, geom, is_struct in zip(
+        edges["u"], edges["v"], edges.geometry, edges["is_structure"], strict=False
+    ):
         c = geom.coords
         xs[u].append(c[0][0])
         ys[u].append(c[0][1])
@@ -292,7 +294,7 @@ def compute_node_elevations(edges, sampler: DemSampler) -> tuple[dict, set]:
     px = np.array([np.mean(xs[n]) for n in nodes])
     py = np.array([np.mean(ys[n]) for n in nodes])
     z = sampler.sample(px, py)
-    node_elev = {n: float(zz) for n, zz in zip(nodes, z)}
+    node_elev = {n: float(zz) for n, zz in zip(nodes, z, strict=False)}
     reliable = {n for n in solid if np.isfinite(node_elev[n])}
     log.info(
         "node elevations: %d nodes, %d reliable (non-structure, valid DEM)",

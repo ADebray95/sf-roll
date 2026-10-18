@@ -85,7 +85,7 @@ def reference():
     ctx = build_context()
     rows = []
     for mode, graph in ctx.graphs.items():
-        pts = dict(zip(ctx.points[mode]["neighborhood"], ctx.points[mode]["node"]))
+        pts = dict(zip(ctx.points[mode]["neighborhood"], ctx.points[mode]["node"], strict=False))
         for pname, w in ROUTING_PROFILES.items():
             cost = graph.build_costs(w)
             for o, d in PAIRS:
@@ -103,7 +103,7 @@ def reference():
                         "d": d,
                         "path": [
                             [int(e), 1 if dr == "rev" else 0]
-                            for e, dr in zip(t["edge_id"], t["direction"])
+                            for e, dr in zip(t["edge_id"], t["direction"], strict=False)
                         ],
                         "cost": float(cost[arcs].sum()),
                         "distance_m": float(s["distance_m"]),
@@ -223,7 +223,9 @@ def warp_result():
             }
             const c = App.network.altCoords;
             let finite = true;
-            for (let i = 0; i < c.length; i++) if (!Number.isFinite(c[i])) { finite = false; break; }
+            for (let i = 0; i < c.length; i++) {
+                if (!Number.isFinite(c[i])) { finite = false; break; }
+            }
             return {anchors: App.warp.anchors, stress: App.warp.stress,
                     ms: App.warp.ms, shift, finite, n: c.length};
         }""")
@@ -275,7 +277,7 @@ def test_metrics_agree_on_pythons_own_path(browser_results, reference):
         for k in ("maxg", "avgg"):
             if abs(js[k] - py[k]) > 5e-4:
                 bad.append((r, f"{k} {js[k]:.5f} vs {py[k]:.5f}"))
-        for i, (a, b) in enumerate(zip(js["th"], py["th"])):
+        for i, (a, b) in enumerate(zip(js["th"], py["th"], strict=False)):
             if abs(a - b) > max(1.0, 1e-3 * py["distance_m"]):
                 bad.append((r, f"d_above[{i}] {a:.2f} vs {b:.2f}"))
     assert not bad, f"{len(bad)} metric mismatches, e.g. {bad[:4]}"

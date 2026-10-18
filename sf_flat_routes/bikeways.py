@@ -133,7 +133,8 @@ def _sample(line: LineString, spacing: float) -> tuple[np.ndarray, np.ndarray]:
     behind = [line.interpolate(max(x - eps, 0.0)) for x in d]
     xy = np.array([(p.x, p.y) for p in pts])
     br = np.arctan2(
-        [a.y - b.y for a, b in zip(ahead, behind)], [a.x - b.x for a, b in zip(ahead, behind)]
+        [a.y - b.y for a, b in zip(ahead, behind, strict=False)],
+        [a.x - b.x for a, b in zip(ahead, behind, strict=False)],
     )
     return xy, br
 
@@ -145,7 +146,7 @@ def conflate(edges: gpd.GeoDataFrame, bikeways: gpd.GeoDataFrame | None = None) 
     bw = bikeways.to_crs(edges.crs)
     # one straight piece per SFMTA vertex pair, so the heading test is local
     pieces, piece_fac = [], []
-    for fac, geom in zip(bw["facility"], bw.geometry):
+    for fac, geom in zip(bw["facility"], bw.geometry, strict=False):
         for x0, y0, x1, y1 in _segments(geom):
             pieces.append(LineString([(x0, y0), (x1, y1)]))
             piece_fac.append(fac)

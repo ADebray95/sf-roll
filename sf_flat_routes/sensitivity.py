@@ -228,7 +228,7 @@ def _corridor_material(tag: str) -> dict | None:
         return {}
     cut = float(np.quantile(pos["score"], ANALYSIS.corridor_score_quantile))
     top = s[s["score"] >= cut]
-    return dict(zip(top["edge_id"].astype(int), top["length_m"].astype(float)))
+    return dict(zip(top["edge_id"].astype(int), top["length_m"].astype(float), strict=False))
 
 
 def _edge_overlap(a: dict | None, b: dict | None) -> float:
@@ -241,8 +241,8 @@ def _edge_overlap(a: dict | None, b: dict | None) -> float:
     """
     if a is None or b is None:
         return float("nan")
-    inter = sum(l for e, l in a.items() if e in b)
-    union = sum(a.values()) + sum(l for e, l in b.items() if e not in a)
+    inter = sum(length for e, length in a.items() if e in b)
+    union = sum(a.values()) + sum(length for e, length in b.items() if e not in a)
     return 100.0 * inter / union if union else 100.0
 
 
@@ -364,6 +364,7 @@ def _write(df: pd.DataFrame) -> None:
             f"{base['min_climb_gain_saved_pct']:.0f}% at baseline.",
         ]
         if have_overlap:
+            drifting = sorted({s for v in others["lead_streets_new"] for s in v.split("; ") if s})
             L += [
                 f"- The corridor material stays "
                 f"{others['edge_overlap_pct'].min():.0f}-"
@@ -377,7 +378,7 @@ def _write(df: pd.DataFrame) -> None:
                 f"(**{others['edge_overlap_pct'].idxmin()}**, "
                 f"{others['edge_overlap_pct'].min():.0f}%), and a few "
                 f"borderline streets drift in and out at the margin: "
-                f"{', '.join(sorted({s for v in others['lead_streets_new'] for s in v.split('; ') if s}))}."
+                f"{', '.join(drifting)}."
             ]
         L += [
             f"- The dominant pass is in {base.get('top_pass_nbhd', '')} in "

@@ -147,7 +147,7 @@ def build_payload(edges, directed: pd.DataFrame) -> dict:
         lon = np.zeros(len(nodes))
         lat = np.zeros(len(nodes))
         seen = np.zeros(len(nodes), dtype=bool)
-        for u, v, geom in zip(edges["u"], edges["v"], ll.geometry):
+        for u, v, geom in zip(edges["u"], edges["v"], ll.geometry, strict=False):
             c = geom.coords
             for node, (x, y) in ((u, c[0]), (v, c[-1])):
                 i = node_index.get(node)

@@ -166,7 +166,9 @@ def cmd_route(args) -> int:
 
     ctx = build_context()
     graph = ctx.graphs[args.mode]
-    pts = dict(zip(ctx.points[args.mode]["neighborhood"], ctx.points[args.mode]["node"]))
+    pts = dict(
+        zip(ctx.points[args.mode]["neighborhood"], ctx.points[args.mode]["node"], strict=False)
+    )
     for name in (args.origin, args.dest):
         if name not in pts:
             print(

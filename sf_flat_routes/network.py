@@ -219,7 +219,7 @@ def _split_geometries(df: pd.DataFrame):
     rows: list[dict] = []
     n_synthetic = 0
 
-    for i, (idx, row) in enumerate(
+    for i, (_idx, row) in enumerate(
         progress(df.iterrows(), desc="  splitting segments", total=len(df), unit="seg")
     ):
         line = geoms[i]
@@ -389,7 +389,7 @@ def largest_component(edges, mode: str):
 
     sub = edges[edges[f"{mode}_ok"]]
     g = nx.Graph()
-    g.add_edges_from(zip(sub["u"], sub["v"]))
+    g.add_edges_from(zip(sub["u"], sub["v"], strict=False))
     if g.number_of_nodes() == 0:
         raise RuntimeError(f"no routable edges for mode {mode}")
     comp = max(nx.connected_components(g), key=len)

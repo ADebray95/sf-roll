@@ -74,7 +74,7 @@ def edge_costs(directed: pd.DataFrame, weights: CostWeights, mode: str = "walk")
 
     if weights.beta:
         pen = np.zeros_like(length)
-        for th, w in zip(_TH, weights.threshold_penalties):
+        for th, w in zip(_TH, weights.threshold_penalties, strict=False):
             if w:
                 pen += w * directed[f"d_above_{th}"].to_numpy(dtype="float64")
         cost = cost + weights.beta * pen
@@ -193,7 +193,9 @@ def build_route_graph(directed: pd.DataFrame, mode: str = "walk") -> RouteGraph:
     uniq, arc_pair = np.unique(key, return_inverse=True)
     pair_from = (uniq // len(nodes)).astype(np.int64)
     pair_to = (uniq % len(nodes)).astype(np.int64)
-    pair_lookup = {(int(a), int(b)): i for i, (a, b) in enumerate(zip(pair_from, pair_to))}
+    pair_lookup = {
+        (int(a), int(b)): i for i, (a, b) in enumerate(zip(pair_from, pair_to, strict=False))
+    }
 
     g = RouteGraph(
         mode=mode,
@@ -258,7 +260,7 @@ def arcs_from_predecessors(
     path_nodes.reverse()
 
     arcs: list[int] = []
-    for a, b in zip(path_nodes[:-1], path_nodes[1:]):
+    for a, b in zip(path_nodes[:-1], path_nodes[1:], strict=False):
         pi = graph.pair_lookup.get((a, b))
         if pi is None or winner[pi] < 0:
             return []
@@ -331,7 +333,7 @@ def route_geometry(graph: RouteGraph, arcs: list[int], edges_gdf):
     geom_by_id = edges_gdf.set_index("edge_id").geometry
     coords: list[tuple] = []
     t = graph.table.iloc[arcs]
-    for eid, direction in zip(t["edge_id"], t["direction"]):
+    for eid, direction in zip(t["edge_id"], t["direction"], strict=False):
         g = geom_by_id.loc[eid]
         cs = list(g.coords)
         if direction == "rev":
@@ -353,7 +355,7 @@ def route_profile(graph: RouteGraph, arcs: list[int], profiles: dict):
     dists: list[np.ndarray] = []
     elevs: list[np.ndarray] = []
     base = 0.0
-    for eid, direction in zip(t["edge_id"], t["direction"]):
+    for eid, direction in zip(t["edge_id"], t["direction"], strict=False):
         d, z = profiles[int(eid)]
         d = np.asarray(d, dtype="float64")
         z = np.asarray(z, dtype="float64")

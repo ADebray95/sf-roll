@@ -46,7 +46,7 @@ ROUTE_ARCS_PICKLE = PROCESSED_DIR / "route_arcs.pkl"
 def _origin_targets(graph: RouteGraph, points: pd.DataFrame):
     """Map neighborhoods to node indices, dropping any not in the component."""
     idx, names = [], []
-    for name, node in zip(points["neighborhood"], points["node"]):
+    for name, node in zip(points["neighborhood"], points["node"], strict=False):
         i = graph.index_of(node)
         if i is None:
             log.warning(
@@ -75,7 +75,7 @@ def compute_pair_routes(graph: RouteGraph, points: pd.DataFrame, profiles: dict 
         ):
             dist, pred, winner = shortest_paths(graph, arc_cost, node_idx)
             for si, oname in enumerate(progress(names, desc=f"  {pname}", unit="origin")):
-                for ti, dname in zip(node_idx, names):
+                for ti, dname in zip(node_idx, names, strict=False):
                     if dname == oname:
                         continue
                     arcs = arcs_from_predecessors(
@@ -199,7 +199,7 @@ def pareto_for_pairs(
     (distance, gain, max grade) is the frontier.
     """
     node_idx, names = _origin_targets(graph, points)
-    name_to_idx = dict(zip(names, node_idx))
+    name_to_idx = dict(zip(names, node_idx, strict=False))
     wanted = [(o, d) for o, d in pairs if o in name_to_idx and d in name_to_idx]
     if not wanted:
         return pd.DataFrame()
@@ -242,7 +242,7 @@ def pareto_for_pairs(
     )
 
     keep_rows = []
-    for (m, o, d), grp in df.groupby(["mode", "origin", "destination"]):
+    for (_m, _o, _d), grp in df.groupby(["mode", "origin", "destination"]):
         obj = grp[["distance_m", "elev_gain_m", "max_grade"]].to_numpy(float)
         mask = _non_dominated(obj)
         g = grp.copy()

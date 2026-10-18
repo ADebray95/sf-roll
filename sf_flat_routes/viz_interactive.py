@@ -320,7 +320,8 @@ def _route_page_html(payload: dict, linked: bool, assets: dict | None = None) ->
 
 _FAVICON = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
 <rect width="32" height="32" rx="7" fill="#0f8f6f"/>
-<path d="M5 22 C10 22 11 12 16 12 S22 20 27 10" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round"/>
+<path d="M5 22 C10 22 11 12 16 12 S22 20 27 10" fill="none" stroke="#fff"
+ stroke-width="3.2" stroke-linecap="round"/>
 </svg>
 """
 

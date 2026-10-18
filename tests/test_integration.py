@@ -75,7 +75,7 @@ def test_elevations_are_in_a_sane_range_for_san_francisco(edges):
 
 def test_distance_above_thresholds_are_nested_and_bounded(directed):
     ths = [3, 5, 8, 10, 15]
-    for a, b in zip(ths[:-1], ths[1:]):
+    for a, b in zip(ths[:-1], ths[1:], strict=False):
         assert (directed[f"d_above_{a}"] >= directed[f"d_above_{b}"] - 1e-6).all()
     # tolerance covers float accumulation: interval lengths are summed,
     # while length_m comes from the geometry

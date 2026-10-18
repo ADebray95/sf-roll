@@ -480,8 +480,8 @@ def compute_edge_metrics(edges, profiles: dict, force: bool = False):
         rect = _rectify_by_segment(edges, profiles)
 
     with step(f"computing metrics for {len(edges):,} edges ({2 * len(edges):,} directed)", log):
-        for edge_id, length in progress(
-            zip(edges["edge_id"].values, edges["length_m"].values),
+        for edge_id, _length in progress(
+            zip(edges["edge_id"].values, edges["length_m"].values, strict=False),
             desc="  metrics",
             total=len(edges),
             unit="edge",

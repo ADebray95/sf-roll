@@ -265,10 +265,10 @@ def _support(
     cell = radius_m / 111000.0
     grid: dict[tuple[int, int], list[int]] = {}
     low = all_names.str.lower().to_numpy()
-    for i, (x, y) in enumerate(zip(all_lon, all_lat)):
+    for i, (x, y) in enumerate(zip(all_lon, all_lat, strict=False)):
         grid.setdefault((int(x / cell), int(y / cell)), []).append(i)
     out = np.zeros(len(names), dtype=int)
-    for k, (n, x, y) in enumerate(zip(names.str.lower(), lon, lat)):
+    for k, (n, x, y) in enumerate(zip(names.str.lower(), lon, lat, strict=False)):
         cx, cy = int(x / cell), int(y / cell)
         for dx in (-1, 0, 1):
             for dy in (-1, 0, 1):

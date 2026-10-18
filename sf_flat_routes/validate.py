@@ -128,7 +128,9 @@ def check_dem_agreement(n_points: int = 4000, seed: int = 0) -> pd.DataFrame:
     lon, lat = tr.transform(xs, ys)
     with rasterio.open(DEM_13_TIF) as d13:
         nod = d13.nodata
-        z2 = np.array([v[0] for v in d13.sample(list(zip(lon, lat)))], dtype="float64")
+        z2 = np.array(
+            [v[0] for v in d13.sample(list(zip(lon, lat, strict=False)))], dtype="float64"
+        )
     good = np.isfinite(z2) & (z2 != nod) & (z2 > -100)
     df = pd.DataFrame({"z_1m": z1[good], "z_13": z2[good]})
     df["diff"] = df["z_1m"] - df["z_13"]

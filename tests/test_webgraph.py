@@ -84,7 +84,7 @@ def test_polyline_round_trips_within_precision():
     ]
     back = decode_polyline(encode_polyline(coords))
     assert len(back) == len(coords)
-    for (x0, y0), (x1, y1) in zip(coords, back):
+    for (x0, y0), (x1, y1) in zip(coords, back, strict=False):
         assert abs(x0 - x1) < 2e-5 and abs(y0 - y1) < 2e-5
 
 

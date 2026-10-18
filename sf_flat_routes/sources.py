@@ -190,7 +190,9 @@ DATASETS: tuple[Dataset, ...] = (
     ),
     Dataset(
         key="overture_base",
-        title=f"Overture Maps base theme: land use, infrastructure, land (release {OVERTURE_RELEASE})",
+        title=(
+            f"Overture Maps base theme: land use, infrastructure, land (release {OVERTURE_RELEASE})"
+        ),
         publisher="Overture Maps Foundation (derived from OpenStreetMap)",
         url=f"{OVERTURE_BUCKET}/{OVERTURE_BASE_PREFIX}/",
         accessed="2026-10-04",

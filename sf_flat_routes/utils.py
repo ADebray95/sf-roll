@@ -10,9 +10,6 @@ import time
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import TypeVar
-
-T = TypeVar("T")
 
 _LOG_FORMAT = "%(asctime)s  %(levelname)-7s %(name)-22s %(message)s"
 
@@ -45,7 +42,7 @@ def step(message: str, logger: logging.Logger | None = None) -> Iterator[None]:
         log.info("%s done in %.1fs", message, time.perf_counter() - t0)
 
 
-def progress(
+def progress[T](
     iterable: Iterable[T], desc: str = "", total: int | None = None, unit: str = "it"
 ) -> Iterable[T]:
     """tqdm progress bar that degrades gracefully when tqdm is absent."""

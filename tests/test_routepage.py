@@ -86,7 +86,8 @@ _SCRIPT = """(queries) => {
                     expanded: App._search.expanded, truncated: App._search.truncated },
         snap: (() => { const p = App.pointAt(-122.58, 37.76); const g = App.graph;
             return p ? { node: p.node, pinLon: p.lon, pinLat: p.lat,
-                         nodeLon: g.nodeLon(p.node), nodeLat: g.nodeLat(p.node) } : { node: -1 }; })(),
+                         nodeLon: g.nodeLon(p.node), nodeLat: g.nodeLat(p.node) }
+                     : { node: -1 }; })(),
     };
 }"""
 
@@ -135,7 +136,8 @@ def page_results():
             const end = line[line.length - 1];
             return { before, after: line.length, sameAsShown: line.length === u.latlngs.length,
                      member: App.family.unique.includes(u),
-                     endsAtCoit: Math.abs(end.lat - hit.lat) < 0.004 && Math.abs(end.lng - hit.lon) < 0.004 };
+                     endsAtCoit: Math.abs(end.lat - hit.lat) < 0.004
+                       && Math.abs(end.lng - hit.lon) < 0.004 };
         }""")
         # bike mode, Divisadero & Hayes to Marina Green: with calm streets on
         # the ride goes up Scott (no bikeway, but quiet); off, straight up
@@ -173,14 +175,20 @@ def page_results():
             while (!s.step(1e9)) {}
             const tail = g.reverse().tail;
             return { src, ms: s.ms, accepted: s.accepted.length, median: s.medianGain,
-              loops: s.loops.map(r => ({ length: r.length, gain: r.gain, overlap: r.overlap, round: r.round,
+              loops: s.loops.map(r => ({
+                length: r.length, gain: r.gain, overlap: r.overlap, round: r.round,
                 first: tail[r.arcs[0]], last: g.head[r.arcs[r.arcs.length - 1]],
-                connected: r.arcs.every((a, i) => i === 0 || tail[a] === g.head[r.arcs[i - 1]]) })) };
+                connected: r.arcs.every((a, i) => i === 0 || tail[a] === g.head[r.arcs[i - 1]]),
+              })) };
         }""")
         out["outback"] = page.evaluate("""() => {
             const g = App.graph, src = App.nearestNode(-122.4435, 37.8060);   // Marina Green
-            const run = (opts) => { const s = g.loops(src, 'walk', Object.assign({ targetM: 4 * 1609.344 }, opts));
-              while (!s.step(1e9)) {} return s.loops.map(r => ({ gain: r.gain, kind: r.kind, overlap: r.overlap, length: r.length })); };
+            const run = (opts) => {
+              const s = g.loops(src, 'walk', Object.assign({ targetM: 4 * 1609.344 }, opts));
+              while (!s.step(1e9)) {}
+              return s.loops.map(r => ({
+                gain: r.gain, kind: r.kind, overlap: r.overlap, length: r.length }));
+            };
             return { loops: run({}), ob: run({ outBack: true }) };
         }""")
         page.evaluate("""() => {
@@ -221,21 +229,24 @@ def page_results():
         out["gpx"] = (
             page.evaluate("""() => { const g = App.gpx(); const pts = g.match(/<trkpt /g) || [];
             const eles = [...g.matchAll(/<ele>([-\\d.]+)<\\/ele>/g)].map(m => +m[1]);
-            return { points: pts.length, latlngs: App.shown.latlngs.length, name: (g.match(/<name>(.*?)<\\/name>/) || [])[1],
-              eleOk: eles.every(Number.isFinite), eleMin: Math.min(...eles), eleMax: Math.max(...eles),
-              header: g.startsWith('<?xml version="1.0"'), closed: g.trim().endsWith('</gpx>') }; }""")
+            return { points: pts.length, latlngs: App.shown.latlngs.length,
+              name: (g.match(/<name>(.*?)<\\/name>/) || [])[1],
+              eleOk: eles.every(Number.isFinite), eleMin: Math.min(...eles),
+              eleMax: Math.max(...eles), header: g.startsWith('<?xml version="1.0"'),
+              closed: g.trim().endsWith('</gpx>') }; }""")
         )
         page.click("#units button[data-u=km]")
         page.wait_for_timeout(300)
-        out["units_km"] = (
-            page.evaluate("""() => ({ dist: document.getElementById('v_dist').textContent, climb: document.getElementById('v_climb').textContent,
-            delta: document.getElementById('delta').textContent, slMax: document.getElementById('sl').max, slpos: document.getElementById('slpos').textContent,
-            end1: document.getElementById('end1').textContent, mi: App.state.loopMi, stored: localStorage.getItem('flattensf.units') })""")
-        )
+        out["units_km"] = page.evaluate("""() => { const g = (id) => document.getElementById(id);
+            return { dist: g('v_dist').textContent, climb: g('v_climb').textContent,
+              delta: g('delta').textContent, slMax: g('sl').max, slpos: g('slpos').textContent,
+              end1: g('end1').textContent, mi: App.state.loopMi,
+              stored: localStorage.getItem('flattensf.units') }; }""")
         page.click("#units button[data-u=mi]")
         page.wait_for_timeout(300)
         out["units_mi"] = (
-            page.evaluate("""() => ({ dist: document.getElementById('v_dist').textContent, slMax: document.getElementById('sl').max,
+            page.evaluate("""() => ({ dist: document.getElementById('v_dist').textContent,
+            slMax: document.getElementById('sl').max,
             stored: localStorage.getItem('flattensf.units') })""")
         )
         out["loop_link"] = page.evaluate("""() => ({ loop: App.state.loop, mi: App.state.loopMi,
@@ -383,7 +394,7 @@ def test_the_family_is_monotone_in_distance_and_climbing(page_results):
     and the behaviour the slider's end labels promise."""
     out, _ = page_results
     seq = out["members"]
-    for a, b in zip(seq, seq[1:]):
+    for a, b in zip(seq, seq[1:], strict=False):
         assert b["distance_m"] >= a["distance_m"] - 1e-6
         assert b["gain"] <= a["gain"] + 1e-6
 
@@ -430,7 +441,9 @@ def test_the_frontier_contains_every_weighted_optimum(page_results):
     ctx = build_context(modes=("walk",))
     graph = ctx.graphs["walk"]
     t = graph.table
-    key = {(int(e), d): i for i, (e, d) in enumerate(zip(t["edge_id"], t["direction"]))}
+    key = {
+        (int(e), d): i for i, (e, d) in enumerate(zip(t["edge_id"], t["direction"], strict=False))
+    }
     first = out["members"][0]
     arcs0 = [key[(e, "rev" if r else "fwd")] for e, r in first["arcs"]]
     src = t["from_node"].iloc[arcs0[0]]
@@ -500,7 +513,8 @@ def test_the_site_loads_its_graph_over_http(served_site):
         out = page.evaluate("""() => ({
             inline: !!window.DATA.bundle, url: window.DATA.bundle_url,
             hillshade: window.DATA.hillshade && window.DATA.hillshade.url,
-            shade: !!document.querySelector('img.hillshade') && document.querySelector('img.hillshade').naturalWidth,
+            shade: !!document.querySelector('img.hillshade')
+              && document.querySelector('img.hillshade').naturalWidth,
             routes: App.family.unique.length, status: document.getElementById('status').textContent,
         })""")
         browser.close()

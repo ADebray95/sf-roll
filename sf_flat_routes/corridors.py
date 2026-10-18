@@ -113,7 +113,7 @@ def accumulate_edge_usage(
             eids = arc_edge[arcs]
             lens = arc_len[arcs]
             share = lens / total_len if total_len > 0 else np.zeros_like(lens)
-            for eid, sh in zip(eids, share):
+            for eid, sh in zip(eids, share, strict=False):
                 eid = int(eid)
                 seen_pairs[eid].add((o, d))
                 endpoints[eid].add(o)
@@ -255,7 +255,7 @@ def _bridge_gaps(
             if key in seen_pairs:
                 continue
             seen_pairs.add(key)
-            for a, b in zip(path[:-1], path[1:]):
+            for a, b in zip(path[:-1], path[1:], strict=False):
                 added.add(int(gap_g[a][b]["edge_id"]))
     return added
 
@@ -305,16 +305,20 @@ def _merge_same_street(records: list[dict], max_join_m: float = 600.0) -> list[d
                 "length_m": total_len,
                 "length_km": total_len / 1000.0,
                 "total_score": sum(g["total_score"] for g in grp),
-                "mean_score": sum(g["mean_score"] * wi for g, wi in zip(grp, w)),
+                "mean_score": sum(g["mean_score"] * wi for g, wi in zip(grp, w, strict=False)),
                 "pair_count_max": max(g["pair_count_max"] for g in grp),
                 "neighborhood_span": max(g["neighborhood_span"] for g in grp),
                 "climb_saved_m": sum(g["climb_saved_m"] for g in grp),
-                "mean_abs_grade": sum(g["mean_abs_grade"] * wi for g, wi in zip(grp, w)),
+                "mean_abs_grade": sum(
+                    g["mean_abs_grade"] * wi for g, wi in zip(grp, w, strict=False)
+                ),
                 "max_grade": max(g["max_grade"] for g in grp),
                 "elev_min_m": min(g["elev_min_m"] for g in grp),
                 "elev_max_m": max(g["elev_max_m"] for g in grp),
-                "gain_per_km": sum(g["gain_per_km"] * wi for g, wi in zip(grp, w)),
-                "low_stress_share": sum(g["low_stress_share"] * wi for g, wi in zip(grp, w)),
+                "gain_per_km": sum(g["gain_per_km"] * wi for g, wi in zip(grp, w, strict=False)),
+                "low_stress_share": sum(
+                    g["low_stress_share"] * wi for g, wi in zip(grp, w, strict=False)
+                ),
                 "street_names": "; ".join(
                     sorted({n for g in grp for n in g["street_names"].split("; ") if n})
                 ),
@@ -366,7 +370,7 @@ def merge_corridors(
     top = top.join(topo, on="edge_id")
 
     g = nx.Graph()
-    for eid, u, v in zip(top["edge_id"], top["u"], top["v"]):
+    for eid, u, v in zip(top["edge_id"], top["u"], top["v"], strict=False):
         g.add_edge(u, v, edge_id=int(eid))
 
     records = []
@@ -506,7 +510,7 @@ def run_corridor_analysis(
     scores = pd.concat(all_scores, ignore_index=True)
     corridors = pd.concat(all_corridors, ignore_index=True)
     corridors["corridor_uid"] = [
-        f"{m}-{i}" for i, m in zip(range(len(corridors)), corridors["mode"])
+        f"{m}-{i}" for i, m in zip(range(len(corridors)), corridors["mode"], strict=False)
     ]
 
     scores.drop(columns=["geometry"]).to_parquet(EDGE_SCORES_PARQUET)

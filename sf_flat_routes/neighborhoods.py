@@ -97,7 +97,13 @@ def _node_table(edges) -> pd.DataFrame:
     """Node coordinates, incident street length and best incident class."""
     rows = []
     for u, v, geom, length, cls, name in zip(
-        edges["u"], edges["v"], edges.geometry, edges["length_m"], edges["cls"], edges["name"]
+        edges["u"],
+        edges["v"],
+        edges.geometry,
+        edges["length_m"],
+        edges["cls"],
+        edges["name"],
+        strict=False,
     ):
         c = geom.coords
         good = cls in _GOOD_CLASSES
