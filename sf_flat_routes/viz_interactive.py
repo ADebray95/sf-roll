@@ -31,7 +31,6 @@ from sf_flat_routes.config import (
     PRODUCT_NAME,
     REPO_URL,
     SITE_DIR,
-    SITE_DOMAIN,
     SITE_URL,
 )
 from sf_flat_routes.utils import get_logger, human_bytes, step
@@ -287,7 +286,7 @@ def _route_page_html(payload: dict, linked: bool, assets: dict | None = None) ->
                 '<link rel="icon" href="favicon.svg" type="image/svg+xml">',
                 '<meta property="og:type" content="website">',
                 f'<meta property="og:title" content="{PRODUCT_NAME}">',
-                '<meta property="og:site_name" content="Flatten SF">',
+                f'<meta property="og:site_name" content="{PRODUCT_NAME}">',
                 '<meta property="og:description" content="The flattest walking or '
                 "cycling route between any two places in San Francisco, and every "
                 'route between it and the shortest one.">',
@@ -462,9 +461,6 @@ def _write_route_page(ctx, graph: dict, pts: dict) -> Path:
         (SITE_DIR / plain).unlink(missing_ok=True)
     (SITE_DIR / "favicon.svg").write_text(_FAVICON, encoding="utf-8")
     (SITE_DIR / ".nojekyll").write_text("", encoding="utf-8")
-    # GitHub Pages reads the custom domain from here on branch deploys and
-    # from Settings -> Pages on Actions deploys; shipping it covers both
-    (SITE_DIR / "CNAME").write_text(SITE_DOMAIN + "\n", encoding="utf-8")
     site_bytes = sum(f.stat().st_size for f in SITE_DIR.rglob("*") if f.is_file())
     log.info(
         "wrote %s (%s) and the site in %s (%s)",

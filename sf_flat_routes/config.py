@@ -24,14 +24,12 @@ PROCESSED_DIR = Path(_RUN_DIR) / "processed" if _RUN_DIR else DATA_DIR / "proces
 OUTPUT_DIR = Path(_RUN_DIR) / "outputs" if _RUN_DIR else PROJECT_ROOT / "outputs"
 #: The route finder as a static site, deployed to GitHub Pages from here.
 SITE_DIR = Path(_RUN_DIR) / "site" if _RUN_DIR else PROJECT_ROOT / "site"
-#: The product is "flattensf"; the Python package keeps its older name.
-PRODUCT_NAME = "Flatten SF"
-REPO_URL = "https://github.com/almostimplemented/flattensf"
-#: The host the site answers on. Pages serves the custom domain on www and
-#: redirects the apex to it, so links, the canonical URL and the social
-#: preview image all use www; the CNAME file carries the same host.
-SITE_DOMAIN = "www.flattensf.com"
-SITE_URL = f"https://{SITE_DOMAIN}/"
+#: The product is "Roll SF"; the Python package keeps flattensf's name.
+PRODUCT_NAME = "Roll SF"
+REPO_URL = "https://github.com/ADebray95/sf-roll"
+#: Where GitHub Pages serves the site: the project page, no custom domain.
+#: Used for the canonical link and the social preview tags.
+SITE_URL = "https://adebray95.github.io/sf-roll/"
 
 for _d in (RAW_DIR, PROCESSED_DIR, OUTPUT_DIR):
     _d.mkdir(parents=True, exist_ok=True)
