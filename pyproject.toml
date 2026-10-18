@@ -1,44 +1,71 @@
 [build-system]
-requires = ["setuptools>=68"]
-build-backend = "setuptools.build_meta"
+requires = ["uv_build==0.10.6"]
+build-backend = "uv_build"
 
 [project]
-name = "sf-flat-routes"
+name = "roll-sf"
 version = "1.0.0"
-description = "Discovering San Francisco's low-elevation street network: flat-route modelling, corridor detection and pass analysis"
-requires-python = ">=3.10"
+description = "Roll SF: wheelchair-friendly routes in San Francisco under a maximum uphill grade"
+readme = "README.md"
+license = "MIT"
+requires-python = "==3.13.*"
 dependencies = [
-    "numpy>=1.24",
-    "pandas>=2.0",
-    "scipy>=1.10",
-    "shapely>=2.0",
-    "pyproj>=3.5",
-    "geopandas>=0.14",
-    "pyogrio>=0.7",
-    "rtree>=1.0",
-    "rasterio>=1.3",
-    "networkx>=3.1",
-    "pyarrow>=14",
-    "fsspec>=2023.9",
-    "aiohttp>=3.9",
-    "requests>=2.31",
-    "folium>=0.15",
-    "branca>=0.7",
-    "matplotlib>=3.7",
-    "tqdm>=4.66",
+    "aiohttp==3.14.5",
+    "branca==0.8.2",
+    "folium==0.20.0",
+    "fsspec==2026.9.0",
+    "geopandas==1.2.0",
+    "matplotlib==3.11.2",
+    "networkx==3.7",
+    "numpy==2.5.4",
+    "pandas==3.0.6",
+    "pyarrow==26.0.0",
+    "pyogrio==0.13.0",
+    "pyproj==3.8.0",
+    "rasterio==1.5.2",
+    "requests==2.34.2",
+    "rtree==1.4.1",
+    "scipy==1.18.1",
+    "shapely==2.2.0",
+    "tqdm==4.70.1",
 ]
 
-[project.optional-dependencies]
-dev = ["pytest>=7.4", "playwright>=1.40", "pyflakes>=3.0"]
+[dependency-groups]
+dev = [
+    "actionlint-py==1.7.12.25",
+    "pip-audit==2.10.1",
+    "playwright==1.64.0",
+    "prek==0.5.5",
+    "pytest==9.1.1",
+    "ruff==0.17.1",
+    "ty==0.0.89",
+    "zizmor==1.31.1",
+]
 
 [project.scripts]
 sf-flat-routes = "sf_flat_routes.__main__:main"
 
-[tool.setuptools.packages.find]
-include = ["sf_flat_routes*"]
-
-[tool.setuptools.package-data]
-sf_flat_routes = ["web/*", "vendor/*"]
+[tool.uv.build-backend]
+module-name = "sf_flat_routes"
+module-root = ""
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "--strict-markers"
+markers = [
+    "needs_data: needs the cached lidar and Overture data in data/ (not available in CI)",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+extend-exclude = ["notebooks"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "TID"]
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[tool.ty.environment]
+python-version = "3.13"
