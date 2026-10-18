@@ -18,9 +18,9 @@ Design notes are in [`docs/architecture.md`](docs/architecture.md).
 ## Status
 
 Roll SF is a fork of [flattensf](https://github.com/almostimplemented/flattensf) and is being built
-in milestones. Today the site still serves flattensf's route finder (shortest to flattest, walking
-or cycling); the wheelchair profile, the uphill cap and the new interface land in the next
-milestones.
+in milestones. The graph is now the wheelchair network (no stairs, unpaved paths, freeways or
+private roads) with each street's steepest 15 m uphill grade; the uphill cap and the new
+interface land in the next milestones.
 
 ## Running locally
 
@@ -56,18 +56,15 @@ Tests marked `needs_data` need the cached source data (below) and only run local
 
 ## Rebuilding the data
 
-Building the street graph needs about 725 MB of public source data (four USGS 1 m lidar tiles and
-an Overture Maps extract), which is why `site/` is committed already built and CI does not rebuild
-it.
+Building the street graph needs about 775 MB of public source data (USGS 1 m lidar and an Overture
+Maps extract), which is why `site/` is committed already built and CI does not rebuild it.
 
 ```bash
-uv run python -m sf_flat_routes download        # fetch and cache the source data
-uv run python -m sf_flat_routes build-network   # street graph, elevation, per-arc metrics
-uv run python -m sf_flat_routes analyze         # neighborhood pairs, corridors, passes (map needs them)
-uv run python -m sf_flat_routes map             # rebuilds site/ (and the outputs/ pages)
+uv run python -m sf_flat_routes all   # download, build-network, site, validate
 ```
 
-`uv run python -m sf_flat_routes sources` prints every dataset with its URL, date and licence.
+[`docs/data.md`](docs/data.md) has the stages, the routing rules and the timings;
+[`docs/validation.md`](docs/validation.md) has the ground-truth checks of the grades.
 
 ## Deploying
 

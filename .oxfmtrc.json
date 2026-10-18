@@ -6,10 +6,11 @@
     "outputs/**",
     "sf_flat_routes/vendor/**",
     "notebooks/**",
-    "SPEC.md",
     "uv.lock",
     "pnpm-lock.yaml",
     "sf_flat_routes/web/*.html",
-    "pyproject.toml"
+    "pyproject.toml",
+    "docs/spec.md",
+    "docs/validation.md"
   ]
 }

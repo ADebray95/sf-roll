@@ -320,10 +320,7 @@ def _smooth_profile(z: np.ndarray, spacing: float) -> np.ndarray:
         return z
     if win % 2 == 0:
         win -= 1
-    try:
-        return savgol_filter(z, win, ELEVATION.smooth_polyorder, mode="interp")
-    except Exception:
-        return z
+    return savgol_filter(z, win, ELEVATION.smooth_polyorder, mode="interp")
 
 
 def sample_edge_profiles(

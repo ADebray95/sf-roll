@@ -530,6 +530,29 @@ def build_addresses() -> dict:
     }
 
 
+def hillshade(
+    dem: np.ndarray,
+    res: float = 1.0,
+    azimuth: float = 315.0,
+    altitude: float = 45.0,
+    z_factor: float = 1.6,
+) -> np.ndarray:
+    """Standard Horn hillshade, returned in 0..1."""
+    # explicit axes: np.gradient's scalar-spacing return shape varies by
+    # numpy version, and the axis form is unambiguous. Rows run north to
+    # south, so dy is the southward slope, which is what the ESRI/Horn
+    # aspect below expects. (The arguments were swapped once; the light then
+    # came from the south-east and every hill read as a hollow.)
+    dy = np.gradient(dem, res, axis=0)
+    dx = np.gradient(dem, res, axis=1)
+    slope = np.arctan(z_factor * np.hypot(dx, dy))
+    aspect = np.arctan2(dy, -dx)
+    az = np.radians(360.0 - azimuth + 90.0)
+    alt = np.radians(altitude)
+    hs = np.sin(alt) * np.cos(slope) + np.cos(alt) * np.sin(slope) * np.cos(az - aspect)
+    return np.clip(hs, 0, 1)
+
+
 def build_hillshade(width_px: int = 1600) -> dict:
     """Quiet shaded relief in WGS84, as a palette PNG data URI with bounds."""
     import rasterio
@@ -538,7 +561,6 @@ def build_hillshade(width_px: int = 1600) -> dict:
     from rasterio.warp import calculate_default_transform, reproject
 
     from sf_flat_routes.elevation import DEM_MOSAIC
-    from sf_flat_routes.viz_static import hillshade
 
     with step("rendering the hillshade base", log):
         with rasterio.open(DEM_MOSAIC) as src:

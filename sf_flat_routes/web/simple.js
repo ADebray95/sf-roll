@@ -82,7 +82,7 @@
   const KM = 1000;
   let units = "mi";
   try {
-    if (localStorage.getItem("flattensf.units") === "km") units = "km";
+    if (localStorage.getItem("sfroll.units") === "km") units = "km";
   } catch {
     /* private mode */
   }
@@ -452,12 +452,10 @@
   /* -------------------------------------------------------------- the app */
   const App = {
     state: {
-      mode: "walk",
       from: null,
       to: null,
       t: 1,
       focus: "from",
-      calm: true,
       loop: false,
       loopMi: LOOP_DEFAULT_MI,
       loopIdx: 0,
@@ -601,8 +599,7 @@
 
     /* ---------------------------------------------------------- endpoints */
     nearestNode(lon, lat) {
-      const bit = this.graph.modeBit(this.state.mode);
-      return this.nodeGrid.nearest(lon, lat, (i) => (this.graph.nodeFlags[i] & bit) !== 0);
+      return this.nodeGrid.nearest(lon, lat, (i) => this.graph.nodeFlags[i] !== 0);
     },
     /* A point is always a routable street corner: whatever was clicked or
      * searched snaps to the nearest one, so the pin sits where the route
@@ -753,26 +750,6 @@
         this.setPoint("to", a, false);
         this.recompute("auto");
       });
-      for (const btn of $("mode").querySelectorAll("button")) {
-        btn.addEventListener("click", () => {
-          if (this.state.mode === btn.dataset.v) return;
-          this.state.mode = btn.dataset.v;
-          for (const b of $("mode").querySelectorAll("button"))
-            b.setAttribute("aria-pressed", b === btn ? "true" : "false");
-          $("calmrow").hidden = this.state.mode !== "bike";
-          // endpoints may sit on stairs or a footpath that a bike cannot use
-          for (const w of ["from", "to"]) {
-            const p = this.state[w];
-            if (!p) continue;
-            this.state[w] = Object.assign({}, p, { node: this.nearestNode(p.lon, p.lat) });
-          }
-          this.recompute("auto");
-        });
-      }
-      $("calm").addEventListener("change", () => {
-        this.state.calm = $("calm").checked;
-        this.recompute("auto");
-      });
       $("outback").addEventListener("change", () => {
         this.state.outBack = $("outback").checked;
         this.recompute(true); // a different kind of run: reframe it
@@ -803,7 +780,6 @@
         });
       }
       this.setUnits(units);
-      $("gpx").addEventListener("click", () => this.downloadGpx());
       $("share").addEventListener("click", () => {
         const url = this.shareUrl(),
           box = $("sharebox"),
@@ -833,27 +809,10 @@
     },
 
     /* ------------------------------------------------------------ routing */
-    /* length + alpha * gain, on real length (no comfort multipliers), so the
-     * family is a true distance-versus-climbing trade-off. On a bike with
-     * calm streets on, length is comfort-weighted instead (engine.js
-     * arcLenStress): a protected lane counts shorter, a busy arterial
-     * longer, and the climbing axis is untouched. */
-    calm() {
-      return this.state.mode === "bike" && this.state.calm;
-    },
-    lenKey() {
-      return this.calm() ? "stress_m" : "distance_m";
-    },
+    /* length + alpha * gain: the family is a true distance-versus-climbing
+     * trade-off */
     weights(alpha) {
-      return {
-        alpha,
-        beta: 0,
-        gamma: 0,
-        penalties: [0, 0, 0, 0, 0],
-        extreme: 0,
-        use_class_multiplier: false,
-        stress: this.calm(),
-      };
+      return { alpha };
     },
 
     /* Loop mode on or off. The To field folds away (its place is kept, so
@@ -916,7 +875,7 @@
     setUnits(u) {
       units = u;
       try {
-        localStorage.setItem("flattensf.units", u);
+        localStorage.setItem("sfroll.units", u);
       } catch {
         /* private mode */
       }
@@ -932,7 +891,7 @@
 
     /* the flattest loops of about the chosen length from the start */
     recomputeLoop(fit) {
-      const { from, mode, loopMi } = this.state;
+      const { from, loopMi } = this.state;
       this.family = null;
       const gen = ++this._gen;
       $("sl").disabled = false;
@@ -944,11 +903,7 @@
       const g = this.graph;
       swapText($("status"), "Trying loops…");
       $("slpos").textContent = fmtLoop(loopMi);
-      const search = g.loops(from.node, mode, {
-        targetM: loopMi * MI,
-        stress: this.calm(),
-        outBack: this.state.outBack,
-      });
+      const search = g.loops(from.node, { targetM: loopMi * MI, outBack: this.state.outBack });
       this.scanStart(from, loopMi * MI);
       const run = () => {
         if (gen !== this._gen) return;
@@ -1006,7 +961,6 @@
           this.fit();
         this.writeHash();
         $("share").hidden = false;
-        $("gpx").hidden = false;
         $("sharebox").hidden = true;
       };
       setTimeout(run, 0);
@@ -1093,7 +1047,7 @@
     recompute(fit) {
       if (this.state.loop) return this.recomputeLoop(fit);
       this.scanEnd();
-      const { from, to, mode } = this.state;
+      const { from, to } = this.state;
       this.family = null;
       const gen = ++this._gen;
       if (!from || !to) {
@@ -1114,21 +1068,16 @@
         return;
       }
       const g = this.graph;
-      const shortest = g.route(from.node, to.node, mode, this.weights(0));
+      const shortest = g.route(from.node, to.node, this.weights(0));
       if (!shortest) {
         this.clearRoute();
-        swapText(
-          $("status"),
-          mode === "bike"
-            ? "No bikeable route between those points."
-            : "No route between those points.",
-        );
+        swapText($("status"), "No route between those points.");
         return;
       }
       // the shortest and the flattest routes go up at once, so the map can
       // be fitted to the whole family; the frontier fills in between them
       const first = this.member(shortest.arcs);
-      const flat = g.route(from.node, to.node, mode, this.weights(ALPHA_MAX)) || shortest;
+      const flat = g.route(from.node, to.node, this.weights(ALPHA_MAX)) || shortest;
       const fm = this.member(flat.arcs);
       const flatStats = fm.stats;
       const sameEnds =
@@ -1145,14 +1094,12 @@
       if (fit === true || (fit === "auto" && !this.inView())) this.fit();
       this.writeHash();
       $("share").hidden = false;
-      $("gpx").hidden = false;
       $("sharebox").hidden = true;
 
-      const search = g.pareto(from.node, to.node, mode, {
+      const search = g.pareto(from.node, to.node, {
         eps: EPS_GAIN_CM,
         epsNode: EPS_NODE_CM,
-        stress: this.calm(),
-        dCap: Math.round(flatStats[this.lenKey()] * g.DM) + 1,
+        dCap: Math.round(flatStats.distance_m * g.DM) + 1,
         gCap: Math.round(first.stats.elev_gain_m * g.CM) + 1,
       });
       const run = () => {
@@ -1185,8 +1132,7 @@
     finishFamily(search, first, fm, fit) {
       let members = search.solutions.map((r) => this.member(r.arcs));
       if (!members.length) members = [first];
-      const key = this.lenKey();
-      members.sort((a, b) => a.stats[key] - b.stats[key]);
+      members.sort((a, b) => a.stats.distance_m - b.stats.distance_m);
       // The weighted flattest route is a frontier point by construction.
       // The search's tolerances can leave it out by a few feet, and if the
       // search was cut short it is missing altogether, so it closes the
@@ -1226,7 +1172,6 @@
       $("delta").textContent = "";
       $("slpos").textContent = "";
       $("share").hidden = true;
-      $("gpx").hidden = true;
       $("sharebox").hidden = true;
       $("sl").disabled = false;
     },
@@ -1484,9 +1429,7 @@
         setText(
           $("delta"),
           this.family.unique.length > 1
-            ? this.calm()
-              ? "The shortest route on calm streets. Slide right to trade distance for less climbing."
-              : "The shortest route. Slide right to trade distance for less climbing."
+            ? "The shortest route. Slide right to trade distance for less climbing."
             : "Shortest and flattest at once.",
           true,
         );
@@ -1581,96 +1524,6 @@
           el.append(" ", b);
         }
       });
-    },
-
-    /* ---------------------------------------------------------------- GPX */
-    /* the route on show as a GPX track with elevation, for Strava, Garmin
-     * Connect, Komoot and the rest */
-    gpxName() {
-      const { from, to, loop } = this.state,
-        f = this.family;
-      if (loop) return fmtLoop(this.state.loopMi) + " from " + from.label;
-      const which =
-        f && f.unique.length > 1
-          ? this.shown === f.shortest
-            ? ", shortest"
-            : this.shown === f.unique[f.unique.length - 1]
-              ? ", flattest"
-              : ""
-          : "";
-      return from.label + " to " + (to ? to.label : "") + which;
-    },
-    gpx() {
-      const u = this.shown,
-        s = u.stats,
-        pts = u.latlngs;
-      alongRoute(u, 0); // builds the cumulative length
-      const cum = u._cum,
-        total = cum[cum.length - 1] || 1,
-        pd = s.profile.d,
-        pz = s.profile.z;
-      const span = pd[pd.length - 1] || 1;
-      let j = 0;
-      const ele = (i) => {
-        const want = (cum[i] / total) * span;
-        while (j < pd.length - 2 && pd[j + 1] < want) j++;
-        const t = pd[j + 1] > pd[j] ? clamp((want - pd[j]) / (pd[j + 1] - pd[j]), 0, 1) : 0;
-        return lerp(pz[j], pz[j + 1], t);
-      };
-      const esc = (x) =>
-        String(x).replace(
-          /[<>&"]/g,
-          (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" })[c],
-        );
-      const name = esc(this.gpxName()),
-        desc = esc(
-          distText(s.distance_m) +
-            ", " +
-            climbText(s.elev_gain_m) +
-            " of climbing. Flatten SF, flattensf.com",
-        );
-      const out = [
-        '<?xml version="1.0" encoding="UTF-8"?>',
-        '<gpx version="1.1" creator="Flatten SF - flattensf.com" xmlns="http://www.topografix.com/GPX/1/1">',
-        "<metadata><name>" +
-          name +
-          "</name><desc>" +
-          desc +
-          '</desc><link href="' +
-          esc(this.shareUrl()) +
-          '"><text>Flatten SF</text></link></metadata>',
-        "<trk><name>" + name + "</name><desc>" + desc + "</desc><trkseg>",
-      ];
-      for (let i = 0; i < pts.length; i++) {
-        out.push(
-          '<trkpt lat="' +
-            pts[i][0].toFixed(6) +
-            '" lon="' +
-            pts[i][1].toFixed(6) +
-            '"><ele>' +
-            ele(i).toFixed(1) +
-            "</ele></trkpt>",
-        );
-      }
-      out.push("</trkseg></trk></gpx>");
-      return out.join("\n");
-    },
-    downloadGpx() {
-      if (!this.shown) return;
-      const text = this.gpx();
-      const slug = this.gpxName()
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-|-$/g, "")
-        .slice(0, 60);
-      const blob = new Blob([text], { type: "application/gpx+xml" });
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = "flattensf-" + slug + ".gpx";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(a.href), 2000);
     },
 
     /* ------------------------------------------------------------ profile */
@@ -1958,27 +1811,20 @@
      * digits and . _ ~ - (labels hex-escaped), which survives any host,
      * link shortener or chat client that mangles key=value fragments. */
     token() {
-      const { from, to, mode, t } = this.state;
+      const { from, to, t } = this.state;
       const c = (p) => p.lon.toFixed(5) + "~" + p.lat.toFixed(5);
-      const m = mode === "bike" ? (this.state.calm ? "b" : "bx") : "w";
       if (this.state.loop)
         return [
           "l",
           c(from),
-          m + (this.state.outBack ? "o" : ""),
+          this.state.outBack ? "o" : "-",
           String(+this.state.loopMi.toFixed(3)),
           String(this.state.loopIdx),
           encLabel(from.label),
         ].join("~");
-      return [
-        "t",
-        c(from),
-        c(to),
-        mode === "bike" ? (this.state.calm ? "b" : "bx") : "w",
-        t.toFixed(3),
-        encLabel(from.label),
-        encLabel(to.label),
-      ].join("~");
+      return ["t", c(from), c(to), t.toFixed(3), encLabel(from.label), encLabel(to.label)].join(
+        "~",
+      );
     },
     writeHash() {
       const { from, to } = this.state;
@@ -2008,43 +1854,32 @@
       if (!h || h.length < 2) return false;
       const parts = h.slice(1).split("~");
       if (parts[0] === "l" && parts.length >= 6) return this.readLoopHash(parts);
-      if (parts[0] !== "t" || parts.length < 8) return false;
+      if (parts[0] !== "t" || parts.length < 7) return false;
       const nums = parts.slice(1, 5).map(Number);
       if (nums.some((v) => !Number.isFinite(v))) return false;
-      if (parts[5] === "b" || parts[5] === "bx") {
-        this.state.mode = "bike";
-        this.state.calm = parts[5] === "b";
-        $("calm").checked = this.state.calm;
-        $("calmrow").hidden = false;
-        for (const b of $("mode").querySelectorAll("button"))
-          b.setAttribute("aria-pressed", b.dataset.v === "bike" ? "true" : "false");
-      }
-      const tt = parseFloat(parts[6]);
+      const tt = parseFloat(parts[5]);
       if (Number.isFinite(tt)) {
         this.state.t = clamp(tt, 0, 1);
         $("sl").value = this.state.t;
       }
-      this.setPoint("from", this.pointAt(nums[0], nums[1], decLabel(parts[7]) || undefined), false);
+      this.setPoint("from", this.pointAt(nums[0], nums[1], decLabel(parts[6]) || undefined), false);
       this.setPoint(
         "to",
-        this.pointAt(nums[2], nums[3], decLabel(parts[8] || "") || undefined),
+        this.pointAt(nums[2], nums[3], decLabel(parts[7] || "") || undefined),
         false,
       );
       return true;
     },
-    /* #l~lon~lat~mode~miles~which~label (mode ending in o: out-and-back allowed) */
+    /* #l~lon~lat~opts~miles~which~label (opts "o": out-and-back allowed) */
     readLoopHash(parts) {
       const lon = +parts[1],
         lat = +parts[2],
         mi = +parts[4];
       if (![lon, lat, mi].every(Number.isFinite)) return false;
-      let m = parts[3] || "w";
-      if (m.endsWith("o")) {
-        m = m.slice(0, -1);
+      if (parts[3] === "o") {
         this.state.outBack = true;
         $("outback").checked = true;
       }
-      this.setMode(m);
       const r = loopSlider();
       this.state.loopMi = clamp(
         r.toMi(Math.round(r.fromMi(mi) / r.step) * r.step),
@@ -2055,15 +1890,6 @@
       this.setLoop(true, false);
       this._pendingLoopIdx = Math.max(0, parseInt(parts[5], 10) || 0);
       return true;
-    },
-    setMode(tok) {
-      if (tok !== "b" && tok !== "bx") return;
-      this.state.mode = "bike";
-      this.state.calm = tok === "b";
-      $("calm").checked = this.state.calm;
-      $("calmrow").hidden = false;
-      for (const b of $("mode").querySelectorAll("button"))
-        b.setAttribute("aria-pressed", b.dataset.v === "bike" ? "true" : "false");
     },
   };
 

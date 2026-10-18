@@ -1,7 +1,7 @@
-"""Central configuration: paths, CRS, grade thresholds and routing weights.
+"""Central configuration: paths, CRS, elevation processing and the wheelchair profile.
 
-Everything tunable in the analysis lives here so that experiments are
-reproducible and the cost model is auditable.
+Everything tunable in the pipeline lives here so that a rebuild is
+reproducible and the routing rules are auditable.
 """
 
 from __future__ import annotations
@@ -16,14 +16,15 @@ from pathlib import Path
 PROJECT_ROOT = Path(os.environ.get("SFFR_ROOT", Path(__file__).resolve().parent.parent))
 DATA_DIR = PROJECT_ROOT / "data"
 RAW_DIR = DATA_DIR / "raw"
-#: ``SFFR_RUN_DIR`` redirects every processed and output path under one
-#: directory, so an experiment (see ``sensitivity.py``) can rebuild the whole
-#: pipeline with different parameters without touching the main results.
+#: ``SFFR_RUN_DIR`` redirects the processed data and the site under one
+#: directory, so an experiment (another smoothing setting, say) can rebuild
+#: the pipeline without touching the main results.
 _RUN_DIR = os.environ.get("SFFR_RUN_DIR")
 PROCESSED_DIR = Path(_RUN_DIR) / "processed" if _RUN_DIR else DATA_DIR / "processed"
-OUTPUT_DIR = Path(_RUN_DIR) / "outputs" if _RUN_DIR else PROJECT_ROOT / "outputs"
-#: The route finder as a static site, deployed to GitHub Pages from here.
+#: The app as a static site, deployed to GitHub Pages from here.
 SITE_DIR = Path(_RUN_DIR) / "site" if _RUN_DIR else PROJECT_ROOT / "site"
+#: Written documentation that the pipeline generates (validation tables).
+DOCS_DIR = PROJECT_ROOT / "docs"
 #: The product is "Roll SF"; the Python package keeps flattensf's name.
 PRODUCT_NAME = "Roll SF"
 REPO_URL = "https://github.com/ADebray95/sf-roll"
@@ -31,7 +32,7 @@ REPO_URL = "https://github.com/ADebray95/sf-roll"
 #: Used for the canonical link and the social preview tags.
 SITE_URL = "https://adebray95.github.io/sf-roll/"
 
-for _d in (RAW_DIR, PROCESSED_DIR, OUTPUT_DIR):
+for _d in (RAW_DIR, PROCESSED_DIR):
     _d.mkdir(parents=True, exist_ok=True)
 
 # --------------------------------------------------------------------------
@@ -51,11 +52,6 @@ CRS_PROJECTED = "EPSG:26910"
 #: Covers the City & County of San Francisco land area plus a small margin.
 #: Deliberately excludes the Marin headlands and the Farallones.
 SF_BBOX = (-122.5200, -122.3300, 37.6950, 37.8350)
-
-#: Treasure Island / Yerba Buena Island are part of SF but are only reachable
-#: via the Bay Bridge (no pedestrian access to the western span) so they are
-#: excluded from neighborhood-pair routing.
-EXCLUDED_NEIGHBORHOODS = ("Treasure Island/YBI",)
 
 
 # --------------------------------------------------------------------------
@@ -104,8 +100,9 @@ class ElevationConfig:
 def _overrides() -> dict:
     """Parameter overrides from ``SFFR_OVERRIDES`` (a JSON object).
 
-    Used by the sensitivity harness to rebuild the pipeline under different
-    settings. Keys are ``ElevationConfig`` or ``AnalysisConfig`` field names.
+    Used with ``SFFR_RUN_DIR`` to rebuild the pipeline under different
+    elevation settings (the smoothing study in docs/validation.md). Keys are
+    ``ElevationConfig`` field names.
     """
     raw = os.environ.get("SFFR_OVERRIDES")
     if not raw:
@@ -130,11 +127,10 @@ def _apply(instance, overrides: dict):
 ELEVATION = _apply(ElevationConfig(), _OV)
 
 # --------------------------------------------------------------------------
-# Grade thresholds
+# Grades
 # --------------------------------------------------------------------------
-#: Grade thresholds (as fractions) at which "distance above grade" is tallied.
-#: 3% = noticeable on a bike; 5% = sustained-effort threshold; 8% = hard;
-#: 10% = very hard / ADA-infeasible; 15% = extreme, walk-your-bike territory.
+#: Grade thresholds (as fractions) at which "distance above grade" is tallied
+#: per directed edge, for the validation tables.
 GRADE_THRESHOLDS = (0.03, 0.05, 0.08, 0.10, 0.15)
 
 #: Percentile used for the "typical steep" grade statistic of an edge.
@@ -143,111 +139,19 @@ GRADE_PERCENTILE = 95
 #: Minimum edge length (m) for its *maximum* grade to be treated as reliable.
 #: Over a 5 m stub a single decimetre of DEM artefact reads as a 20% grade;
 #: the worst real example found was a 5 m connector at Market and 5th which
-#: reported 41%. Short edges keep their metrics but are excluded from
-#: maximum-grade tests, which are instead judged on average grade.
+#: reported 41%. Short edges keep their metrics but are judged on average
+#: grade instead.
 MIN_RELIABLE_GRADE_LENGTH_M = 15.0
 
-
-# --------------------------------------------------------------------------
-# Routing cost model
-# --------------------------------------------------------------------------
-@dataclass(frozen=True)
-class CostWeights:
-    """Weights for the additive edge cost model.
-
-    The cost of traversing a directed edge is, in "equivalent metres":
-
-        cost = length_m * mode_multiplier
-             + alpha * cumulative_gain_m
-             + beta  * sum_k(w_k * distance_above_threshold_k)
-             + gamma * extreme_grade_distance_m
-             + turn/one-way handling
-
-    ``alpha`` is the horizontal distance a walker/rider would happily trade
-    for one metre of climbing.  The classic Naismith rule (walking) is ~7.9 m
-    per metre climbed; cyclists are far more climb-averse, so the bicycle
-    default is higher.
-    """
-
-    name: str = "balanced"
-    #: metres of equivalent detour accepted per metre of climbing
-    alpha: float = 8.0
-    #: multiplier on the graded steep-distance penalty
-    beta: float = 1.0
-    #: multiplier on the extreme-grade penalty
-    gamma: float = 1.0
-    #: per-threshold penalty weights (equivalent metres per metre travelled
-    #: above the threshold). Applied cumulatively, so a 12% grade incurs the
-    #: 3%, 5%, 8% and 10% penalties -- this makes the penalty grow
-    #: nonlinearly (super-linearly) with grade.
-    threshold_penalties: tuple = (0.25, 0.75, 2.0, 4.0, 10.0)
-    #: Extra penalty (equivalent metres per metre) for distance above the
-    #: highest threshold, scaled by gamma.
-    extreme_extra: float = 10.0
-    #: Cap on total cost inflation relative to plain length, to stop a single
-    #: objective producing absurd detours. ``None`` disables the cap.
-    max_detour_ratio: float | None = None
-    #: Whether the mode's per-class comfort multipliers apply. The "shortest"
-    #: objective sets this False so that it minimises *distance only*, as the
-    #: analysis specification requires. Without the flag, the bicycle comfort
-    #: weights (19th Ave at 1.9x, protected cycleway at 0.85x) made the
-    #: "shortest" bicycle route longer in real metres than the flat route,
-    #: which made every distance-penalty comparison meaningless.
-    use_class_multiplier: bool = True
-
-
-#: The four routing objectives required by the analysis.
-ROUTING_PROFILES: dict[str, CostWeights] = {
-    # A. Shortest -- distance only.
-    "shortest": CostWeights(
-        name="shortest",
-        alpha=0.0,
-        beta=0.0,
-        gamma=0.0,
-        threshold_penalties=(0, 0, 0, 0, 0),
-        extreme_extra=0.0,
-        use_class_multiplier=False,
-    ),
-    # B. Minimum climbing -- climbing dominates, grade shape ignored.
-    "min_climb": CostWeights(
-        name="min_climb",
-        alpha=120.0,
-        beta=0.0,
-        gamma=0.0,
-        threshold_penalties=(0, 0, 0, 0, 0),
-        extreme_extra=0.0,
-    ),
-    # C. Grade-averse -- steep *segments* dominate, total climbing secondary.
-    "grade_averse": CostWeights(
-        name="grade_averse",
-        alpha=4.0,
-        beta=12.0,
-        gamma=6.0,
-        threshold_penalties=(0.25, 1.0, 3.0, 6.0, 15.0),
-        extreme_extra=15.0,
-    ),
-    # D. Balanced "flat but reasonable".
-    "balanced": CostWeights(
-        name="balanced",
-        alpha=14.0,
-        beta=2.0,
-        gamma=2.0,
-        threshold_penalties=(0.25, 0.75, 2.0, 4.0, 10.0),
-        extreme_extra=10.0,
-    ),
-}
-
-#: Sweep used to trace the distance/climb Pareto frontier. Each value scales
-#: *every* climbing and grade term of the balanced profile together (alpha,
-#: beta and gamma), so 0 is pure distance, 1 is the balanced objective and
-#: large values approach the flattest possible route. Scaling only alpha,
-#: as an earlier version did, left beta and gamma in force at the "shortest"
-#: end and the frontier never reached the true shortest path.
-PARETO_LAMBDA_SWEEP = (0.0, 0.1, 0.2, 0.35, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 5.0, 8.0, 15.0)
+#: Window (m) over which the steepest uphill of a directed arc is measured:
+#: ``max_up_grade_15m`` is the largest rise over any stretch this long of the
+#: smoothed profile, in the direction of travel. Arcs shorter than the window
+#: use their average climb instead.
+UPHILL_WINDOW_M = 15.0
 
 
 # --------------------------------------------------------------------------
-# Travel modes
+# The wheelchair profile
 # --------------------------------------------------------------------------
 @dataclass(frozen=True)
 class ModeConfig:
@@ -256,22 +160,24 @@ class ModeConfig:
     allowed_classes: frozenset = field(default_factory=frozenset)
     #: Overture ``subclass`` values that are always excluded.
     excluded_subclasses: frozenset = field(default_factory=frozenset)
-    #: Access modes checked against Overture ``access_restrictions``.
-    access_modes: tuple = ()
-    #: Per-class multiplier on length, expressing comfort/stress rather than
-    #: distance. 1.0 = neutral.
-    class_multiplier: dict = field(default_factory=dict)
-    #: If True, one-way restrictions are enforced (bicycles) rather than
-    #: ignored (pedestrians).
-    respect_oneway: bool = False
+    #: Overture ``road_surface`` values that rule an edge out.
+    excluded_surfaces: frozenset = field(default_factory=frozenset)
+    #: Mode token checked against Overture ``access_restrictions``.
+    access_mode: str = "foot"
 
 
-#: Classes that are never usable on foot or by bike, in either mode.
+#: Classes that are never routable: grade-separated freeways and their ramps,
+#: stairs, and rail. ``trunk`` is not here: in San Francisco it is Van Ness
+#: Avenue, 19th Avenue, Lombard Street and part of Mission Street, ordinary
+#: streets with sidewalks; trunk segments without foot access carry a
+#: foot-denied rule in Overture and drop out through access evaluation.
 NEVER_ROUTABLE_CLASSES = frozenset(
     {
-        "motorway",  # grade-separated freeways
+        "motorway",
         "motorway_link",
-        # rail/water subtypes are filtered by subtype, these are belt-and-braces
+        "steps",
+        "track",
+        "bridleway",
         "light_rail",
         "subway",
         "tram",
@@ -281,49 +187,19 @@ NEVER_ROUTABLE_CLASSES = frozenset(
     }
 )
 
-#: Subclasses excluded from the routable graph for *both* modes.
-#: ``sidewalk`` and ``crosswalk`` are excluded because the analysis models
-#: travel along street centrelines: including the sidewalk network would
-#: represent every street two or three times, which distorts corridor
-#: aggregation and street naming. See README "Limitations".
-NEVER_ROUTABLE_SUBCLASSES = frozenset({"sidewalk", "crosswalk", "driveway", "parking_aisle"})
-
-WALK = ModeConfig(
-    name="walk",
-    allowed_classes=frozenset(
-        {
-            "trunk",
-            "primary",
-            "secondary",
-            "tertiary",
-            "residential",
-            "living_street",
-            "unclassified",
-            "service",
-            "pedestrian",
-            "footway",
-            "path",
-            "steps",
-            "track",
-            "cycleway",
-            "bridleway",
-            "unknown",
-        }
-    ),
-    excluded_subclasses=NEVER_ROUTABLE_SUBCLASSES,
-    access_modes=("foot",),
-    class_multiplier={
-        # Stairs are walkable but slow and unpleasant with any load.
-        "steps": 1.6,
-        # Big arterials are unpleasant but passable on foot.
-        "trunk": 1.15,
-        "primary": 1.05,
-    },
-    respect_oneway=False,  # pedestrians are not bound by one-way streets
+#: Subclasses excluded from the routable graph. ``sidewalk`` and
+#: ``crosswalk`` are excluded because travel is modelled along street
+#: centrelines: including the sidewalk network would represent every street
+#: two or three times.
+NEVER_ROUTABLE_SUBCLASSES = frozenset(
+    {"sidewalk", "crosswalk", "driveway", "parking_aisle", "steps"}
 )
 
-BIKE = ModeConfig(
-    name="bike",
+#: Overture ``road_surface`` values a manual wheelchair cannot use.
+UNPAVED_SURFACES = frozenset({"unpaved", "dirt", "gravel", "grass", "sand", "ground"})
+
+WHEELCHAIR = ModeConfig(
+    name="wheelchair",
     allowed_classes=frozenset(
         {
             "trunk",
@@ -338,132 +214,13 @@ BIKE = ModeConfig(
             "footway",
             "path",
             "cycleway",
-            "track",
             "unknown",
         }
     ),
-    # Steps are excluded outright for bicycles -- a route suitable for a
-    # pedestrian is emphatically not necessarily rideable.
     excluded_subclasses=NEVER_ROUTABLE_SUBCLASSES,
-    access_modes=("bicycle",),
-    class_multiplier={
-        "cycleway": 0.85,  # protected/dedicated bike infrastructure
-        "living_street": 0.9,
-        "residential": 0.95,
-        "trunk": 1.9,  # e.g. 19th Ave, Van Ness -- high stress
-        "primary": 1.45,
-        "secondary": 1.2,
-        "footway": 1.5,  # rideable only where bicycles are permitted
-        "path": 1.1,
-        "pedestrian": 1.4,
-    },
-    respect_oneway=True,
+    excluded_surfaces=UNPAVED_SURFACES,
+    access_mode="foot",
 )
 
-MODES: dict[str, ModeConfig] = {"walk": WALK, "bike": BIKE}
-
-#: Classes bicycles may never use even when the class list would allow it.
-BIKE_FORBIDDEN_CLASSES = frozenset({"steps", "bridleway"})
-
-
-# --------------------------------------------------------------------------
-# Analysis parameters
-# --------------------------------------------------------------------------
-@dataclass(frozen=True)
-class AnalysisConfig:
-    #: Number of representative access points sampled per neighborhood.
-    #: One primary point is used for the pair matrix; the rest support
-    #: robustness checks.
-    points_per_neighborhood: int = 1
-    #: Corridor detection: keep edges whose importance score is at or above
-    #: this quantile of the positive-score distribution.
-    corridor_score_quantile: float = 0.93
-    #: Minimum corridor length (m) after merging contiguous segments.
-    corridor_min_length_m: float = 350.0
-    #: Maximum average grade for an edge to be eligible as corridor material.
-    corridor_max_avg_grade: float = 0.055
-    #: Corridors are grown only through edges below this maximum grade.
-    corridor_max_edge_grade: float = 0.09
-    #: Pass detection: elevation band (m) used to group saddle candidates.
-    pass_cluster_radius_m: float = 400.0
-    #: Number of Pareto sample pairs reported in detail.
-    pareto_detail_pairs: int = 14
-    #: Which qualifying intersection to use as a neighborhood's access point:
-    #: 0 is the one nearest the street-weighted centre, 1 the next nearest,
-    #: and so on. Non-zero values exist for robustness checks only.
-    point_rank: int = 0
-
-
-ANALYSIS = _apply(AnalysisConfig(), _OV)
-
-# --------------------------------------------------------------------------
-# Representative neighborhood pairs highlighted in the written analysis
-# --------------------------------------------------------------------------
-FEATURED_PAIRS = (
-    ("Mission", "Outer Sunset"),
-    ("Inner Richmond", "Downtown/Civic Center"),
-    ("Mission", "Marina"),
-    ("Bayview", "Golden Gate Park"),
-    ("Noe Valley", "Financial District"),
-    ("Outer Richmond", "Mission"),
-    ("Excelsior", "South of Market"),
-    ("Haight Ashbury", "Financial District"),
-    ("Parkside", "Downtown/Civic Center"),
-    ("Bernal Heights", "Marina"),
-    ("Potrero Hill", "Western Addition"),
-    ("West of Twin Peaks", "Downtown/Civic Center"),
-    ("Visitacion Valley", "Mission"),
-    ("Chinatown", "Inner Sunset"),
-)
-
-#: Validation targets -- well known flat corridors and steep streets used as
-#: sanity checks on the elevation model (see ``validate`` command).
-VALIDATION_FLAT = (
-    "The Wiggle",
-    "Market Street",
-    "Valencia Street",
-    "The Embarcadero",
-    "Great Highway",
-    "Alemany Boulevard",
-    "San Jose Avenue",
-    "Illinois Street",
-)
-VALIDATION_STEEP = (
-    "Filbert Street",
-    "22nd Street",
-    "Jones Street",
-    "Divisadero Street",
-    "Lombard Street",
-    "Duboce Avenue",
-)
-
-
-def profile(name: str) -> CostWeights:
-    """Look up a routing profile by name."""
-    try:
-        return ROUTING_PROFILES[name]
-    except KeyError:
-        raise KeyError(
-            f"unknown routing profile {name!r}; choose from {sorted(ROUTING_PROFILES)}"
-        ) from None
-
-
-def with_alpha(weights: CostWeights, alpha: float) -> CostWeights:
-    """Return a copy of ``weights`` with a different climbing weight."""
-    return replace(weights, alpha=alpha, name=f"{weights.name}_a{alpha:g}")
-
-
-def with_scale(weights: CostWeights, lam: float) -> CostWeights:
-    """Scale every climbing/grade term of ``weights`` by ``lam``.
-
-    ``lam == 0`` is pure distance, with the comfort multipliers switched off
-    so that it coincides exactly with the ``shortest`` objective.
-    """
-    return replace(
-        weights,
-        alpha=weights.alpha * lam,
-        beta=weights.beta * lam,
-        gamma=weights.gamma * lam,
-        use_class_multiplier=(lam > 0) and weights.use_class_multiplier,
-        name=f"{weights.name}_x{lam:g}",
-    )
+#: Slider range for the maximum uphill grade, in percent (spec D8).
+CAP_MIN_PCT, CAP_MAX_PCT, CAP_DEFAULT_PCT = 3, 20, 8

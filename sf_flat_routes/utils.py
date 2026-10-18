@@ -22,7 +22,7 @@ def setup_logging(verbose: bool = False) -> None:
         stream=sys.stderr,
     )
     # rasterio / fiona are chatty at DEBUG
-    for noisy in ("rasterio", "fiona", "pyogrio", "urllib3", "fsspec", "matplotlib"):
+    for noisy in ("rasterio", "fiona", "pyogrio", "urllib3", "fsspec"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
 
