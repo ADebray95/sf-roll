@@ -62,7 +62,6 @@ const Warp = {
   /* ------------------------------------------------------- cost matrix */
   costMatrix(graph, nodes, mode, w) {
     const K = nodes.length, D = new Float64Array(K * K);
-    const index = new Map(nodes.map((n, i) => [n, i]));
     for (let i = 0; i < K; i++) {
       const d = graph.distances(nodes[i], mode, w, nodes);
       for (let j = 0; j < K; j++) D[i * K + j] = d[j];

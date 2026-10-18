@@ -1,0 +1,2 @@
+# Supply chain: refuse releases younger than a day, and run no install scripts.
+minimumReleaseAge: 1440

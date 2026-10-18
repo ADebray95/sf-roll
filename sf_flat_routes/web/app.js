@@ -480,7 +480,7 @@ const App = {
     ctx.globalAlpha = 1;
     ctx.strokeStyle = "#e9eef3"; ctx.lineWidth = 1.6;
     ctx.beginPath();
-    for (let i = 0; i < n; i++) { i ? ctx.lineTo(x(i), y(e[i])) : ctx.moveTo(x(i), y(e[i])); }
+    for (let i = 0; i < n; i++) { if (i) ctx.lineTo(x(i), y(e[i])); else ctx.moveTo(x(i), y(e[i])); }
     ctx.stroke();
     ctx.strokeStyle = "#39434e"; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(padL, H - padB); ctx.lineTo(W - padR, H - padB); ctx.stroke();

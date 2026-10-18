@@ -69,7 +69,7 @@
   // miles and feet, or kilometres and metres: a preference kept on the device
   const KM = 1000;
   let units = "mi";
-  try { if (localStorage.getItem("flattensf.units") === "km") units = "km"; } catch (e) { /* private mode */ }
+  try { if (localStorage.getItem("flattensf.units") === "km") units = "km"; } catch { /* private mode */ }
   const distNum = (m) => { const v = units === "km" ? m / KM : m / MI; return v < 10 ? v.toFixed(1) : String(Math.round(v)); };
   const distUnit = () => units === "km" ? "km" : "mi";
   const climbNum = (m) => Math.round(units === "km" ? m : m * FT).toLocaleString();
@@ -141,7 +141,7 @@
     /* "24th St & Mission St": a node with two or more distinct street names */
     buildIntersections() {
       const g = this.graph, geom = this.geom;
-      const per = new Array(g.n);
+      const per = Array.from({ length: g.n });
       const add = (node, nameIdx) => {
         if (!nameIdx) return;
         let s = per[node];
@@ -216,7 +216,7 @@
       }
 
       // "24th & mission" -- an intersection
-      const parts = raw.toLowerCase().split(/\s+(?:and|at)\s+|\s*[&\/@+]\s*/).map(norm).filter(Boolean);
+      const parts = raw.toLowerCase().split(/\s+(?:and|at)\s+|\s*[&/@+]\s*/).map(norm).filter(Boolean);
       if (parts.length === 2) {
         for (const it of this.intersections) {
           let ok = 0;
@@ -397,7 +397,7 @@
         this.setHover(clamp((e.clientX - r.left - PROF_PAD) / (r.width - 2 * PROF_PAD), 0, 1));
       };
       cv.addEventListener("pointermove", at);
-      cv.addEventListener("pointerdown", (e) => { at(e); try { cv.setPointerCapture(e.pointerId); } catch (err) { /* fine */ } });
+      cv.addEventListener("pointerdown", (e) => { at(e); try { cv.setPointerCapture(e.pointerId); } catch { /* fine */ } });
       cv.addEventListener("pointerleave", () => this.setHover(null));
       for (const ev of ["pointerup", "pointercancel"]) cv.addEventListener(ev, (e) => { if (e.pointerType !== "mouse") this.setHover(null); });
 
@@ -628,7 +628,7 @@
     /* switch between miles and kilometres and redraw what shows them */
     setUnits(u) {
       units = u;
-      try { localStorage.setItem("flattensf.units", u); } catch (e) { /* private mode */ }
+      try { localStorage.setItem("flattensf.units", u); } catch { /* private mode */ }
       for (const b of $("units").querySelectorAll("button")) b.setAttribute("aria-pressed", b.dataset.u === u ? "true" : "false");
       if (this.state.loop) this.loopSliderRange();
       if (this.family && this.shown) {
@@ -1062,7 +1062,7 @@
     /* the route on show as a GPX track with elevation, for Strava, Garmin
      * Connect, Komoot and the rest */
     gpxName() {
-      const { from, to, loop, t } = this.state, f = this.family;
+      const { from, to, loop } = this.state, f = this.family;
       if (loop) return fmtLoop(this.state.loopMi) + " from " + from.label;
       const which = f && f.unique.length > 1 ? (this.shown === f.shortest ? ", shortest" : this.shown === f.unique[f.unique.length - 1] ? ", flattest" : "") : "";
       return from.label + " to " + (to ? to.label : "") + which;
@@ -1296,16 +1296,16 @@
     writeHash() {
       const { from, to } = this.state;
       if (!from || (!to && !this.state.loop)) return;
-      try { history.replaceState(null, "", "#" + this.token()); } catch (e) { /* sandboxed */ }
+      try { history.replaceState(null, "", "#" + this.token()); } catch { /* sandboxed */ }
     },
     shareUrl() {
       let base = "";
-      try { base = location.href.split("#")[0]; } catch (e) { /* sandboxed */ }
+      try { base = location.href.split("#")[0]; } catch { /* sandboxed */ }
       return base + "#" + this.token();
     },
     readHash() {
       let h = "";
-      try { h = location.hash; } catch (e) { return false; }
+      try { h = location.hash; } catch { return false; }
       if (!h || h.length < 2) return false;
       const parts = h.slice(1).split("~");
       if (parts[0] === "l" && parts.length >= 6) return this.readLoopHash(parts);
@@ -1357,7 +1357,7 @@
   function encLabel(s) {
     let out = "";
     for (const ch of String(s || "")) {
-      if (/[A-Za-z0-9.\-]/.test(ch)) out += ch;
+      if (/[A-Za-z0-9.-]/.test(ch)) out += ch;
       else { const c = ch.codePointAt(0); out += c < 256 ? "_" + c.toString(16).padStart(2, "0") : "_u" + c.toString(16).padStart(4, "0"); }
     }
     return out;

@@ -15,3 +15,6 @@ __pycache__/
 .venv/
 
 data/sensitivity/
+node_modules/
+test-results/
+playwright-report/
