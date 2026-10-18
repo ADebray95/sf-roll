@@ -7,7 +7,138 @@
  */
 "use strict";
 
+/**
+ * @typedef {Int8Array | Uint8Array | Int16Array | Uint16Array
+ *   | Int32Array | Uint32Array | Float32Array | Float64Array} NumArray
+ * @typedef {"i1" | "u1" | "i2" | "u2" | "i4" | "u4" | "f4" | "f8"} DTypeTag
+ * @typedef {{
+ *   new (buffer: ArrayBufferLike, byteOffset: number, length: number): NumArray,
+ *   readonly BYTES_PER_ELEMENT: number,
+ * }} NumArrayCtor
+ * @typedef {{ t: DTypeTag, o: number, n: number }} ArrayEntry
+ * @typedef {{ o: number, b: number }} StringEntry
+ * @typedef {{ arrays: Record<string, ArrayEntry>, strings: Record<string, StringEntry> }} Manifest
+ * @typedef {{ bundle?: string, bundle_url?: string, bundle_bytes?: number }} BundleSource
+ * @typedef {"walk" | "bike"} Mode
+ *
+ * @typedef {object} GraphMeta
+ * @property {number} n_nodes
+ * @property {number} n_edges
+ * @property {number[]} thresholds grade thresholds, one arc_th<t> array each
+ * @property {{ dm: number, cm: number, coord: number, grade: number, stress?: number }} scales
+ * @property {string[]} classes
+ * @property {string[]} names
+ * @property {Partial<Record<Mode, number[]>>} multipliers per-class length factors
+ *
+ * @typedef {object} Weights
+ * @property {number} alpha
+ * @property {number} beta
+ * @property {number} gamma
+ * @property {number[]} penalties
+ * @property {number} extreme
+ * @property {boolean} [use_class_multiplier]
+ * @property {boolean} [stress]
+ *
+ * @typedef {{ indptr: Int32Array, arcs: Int32Array, tail: Int32Array }} ReverseAdjacency
+ * @typedef {{ arcs: number[], cost: number, settled: number }} RouteResult
+ *
+ * @typedef {object} Tree
+ * @property {number} src
+ * @property {Float64Array} dist
+ * @property {Int32Array} prev
+ * @property {Float64Array} len
+ * @property {Float64Array} gain
+ * @property {Uint8Array} done
+ * @property {boolean} reverse
+ *
+ * @typedef {object} TreeOptions
+ * @property {boolean} [reverse]
+ * @property {number} [target]
+ * @property {Uint8Array | null} [pen]
+ * @property {Uint8Array | null} [penNode]
+ * @property {number} [penK]
+ * @property {number} [minPerM]
+ *
+ * @typedef {"petal" | "outback" | "triangle" | "polygon"} LoopKind
+ * @typedef {{
+ *   arcs: number[], length: number, gain: number, overlap: number, round: number,
+ *   kind: LoopKind,
+ * }} Loop
+ *
+ * @typedef {object} LoopOptions
+ * @property {number} targetM
+ * @property {number} [alpha]
+ * @property {boolean} [stress]
+ * @property {number} [sectors]
+ * @property {number} [tol]
+ * @property {number} [maxOverlap]
+ * @property {number} [penK]
+ * @property {number} [keep]
+ * @property {number} [nearM]
+ * @property {number} [perArc]
+ * @property {number} [minRound]
+ * @property {number} [tolM]
+ * @property {number} [retries]
+ * @property {boolean} [outBack]
+ *
+ * @typedef {object} LoopSearch
+ * @property {Loop[]} loops
+ * @property {Loop[]} accepted
+ * @property {Loop[]} loose
+ * @property {Loop[]} all
+ * @property {number} tried
+ * @property {boolean} done
+ * @property {number} ms
+ * @property {boolean} shortfall
+ * @property {Loop} [last]
+ * @property {number} [medianGain]
+ * @property {(budgetMs?: number) => boolean} step
+ *
+ * @typedef {object} ParetoOptions
+ * @property {number} [eps]
+ * @property {number} [epsNode]
+ * @property {number} [dCap]
+ * @property {number} [gCap]
+ * @property {number} [maxLabels]
+ * @property {boolean} [stress]
+ *
+ * @typedef {{ arcs: number[], length: number, weighted: number, gain: number }} ParetoSolution
+ *
+ * @typedef {object} ParetoSearch
+ * @property {ParetoSolution[]} solutions
+ * @property {boolean} done
+ * @property {number} expanded
+ * @property {number} labels
+ * @property {boolean} truncated
+ * @property {(budgetMs?: number) => boolean} [step]
+ *
+ * @typedef {object} RouteSummary
+ * @property {number} distance_m
+ * @property {number} stress_m
+ * @property {number} elev_gain_m
+ * @property {number} elev_loss_m
+ * @property {number} steepest
+ * @property {number} max_grade
+ * @property {number} avg_abs_grade
+ * @property {number[]} thresholds
+ * @property {number} n_edges
+ * @property {number} start_elev_m
+ * @property {number} end_elev_m
+ * @property {{ d: number[], z: number[] }} profile
+ *
+ * @typedef {object} EdgeInfo
+ * @property {string | null} name
+ * @property {string | undefined} cls
+ * @property {number} bucket
+ * @property {number} max_grade
+ * @property {number} avg_grade
+ * @property {number} length_m
+ * @property {number} gain_per_km
+ * @property {boolean} low_stress
+ */
+
 /* ------------------------------------------------------------------ decode */
+/** @type {Record<DTypeTag, NumArrayCtor>} */
 const TYPES = {
   i1: Int8Array,
   u1: Uint8Array,
@@ -19,6 +150,10 @@ const TYPES = {
   f8: Float64Array,
 };
 
+/**
+ * @param {string} str
+ * @returns {Uint8Array<ArrayBuffer>}
+ */
 function base64ToBytes(str) {
   const bin = atob(str);
   const bytes = new Uint8Array(bin.length);
@@ -26,9 +161,12 @@ function base64ToBytes(str) {
   return bytes;
 }
 
-/* The whole graph ships as one gzipped buffer. Inflating it in the browser
+/** The whole graph ships as one gzipped buffer. Inflating it in the browser
  * costs a few hundred milliseconds and saves about two thirds of the file
- * size, which matters a great deal more. */
+ * size, which matters a great deal more.
+ * @param {Uint8Array<ArrayBuffer>} bytes
+ * @returns {Promise<Uint8Array<ArrayBuffer>>}
+ */
 async function inflateBytes(bytes) {
   // a host that serves .gz with Content-Encoding: gzip hands us the plain
   // bytes already; the gzip magic number tells the two cases apart
@@ -43,18 +181,31 @@ async function inflateBytes(bytes) {
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
+/**
+ * @param {string} b64str base64 of the (possibly gzipped) bundle
+ * @returns {Promise<Uint8Array<ArrayBuffer>>}
+ */
 async function inflate(b64str) {
   return inflateBytes(base64ToBytes(b64str));
 }
 
-/* Fetch the packed graph as a separate file (the hosted site), reporting
- * progress, or inflate the inline copy (the single-file page). */
+/** Fetch the packed graph as a separate file (the hosted site), reporting
+ * progress, or inflate the inline copy (the single-file page).
+ * @param {BundleSource} data
+ * @param {(got: number, total: number) => void} [onProgress]
+ * @returns {Promise<Uint8Array<ArrayBuffer>>}
+ */
 async function loadBundle(data, onProgress) {
   if (data.bundle) return inflate(data.bundle);
-  const res = await fetch(data.bundle_url);
+  // without an inline bundle the page always carries bundle_url
+  const res = await fetch(/** @type {string} */ (data.bundle_url));
   if (!res.ok) throw new Error("could not load " + data.bundle_url + " (" + res.status + ")");
-  const total = +res.headers.get("Content-Length") || data.bundle_bytes || 0;
-  const reader = res.body.getReader();
+  // a missing header is null, which + turns into 0 just as it does ""
+  const total =
+    +(/** @type {string} */ (res.headers.get("Content-Length"))) || data.bundle_bytes || 0;
+  // an ok response to a GET always has a body
+  const reader = /** @type {ReadableStream<Uint8Array<ArrayBuffer>>} */ (res.body).getReader();
+  /** @type {Uint8Array<ArrayBuffer>[]} */
   const chunks = [];
   let got = 0;
   for (;;) {
@@ -75,14 +226,26 @@ async function loadBundle(data, onProgress) {
 
 /* Views onto the inflated buffer -- no copying, no JSON number parsing. */
 class Bundle {
+  /**
+   * @param {Uint8Array<ArrayBuffer>} buf the inflated bundle
+   * @param {Manifest} manifest where each named array and string sits in buf
+   */
   constructor(buf, manifest) {
     this.buf = buf;
     this.manifest = manifest;
     this.decoder = new TextDecoder();
   }
+  /**
+   * @param {string} name
+   * @returns {boolean}
+   */
   has(name) {
     return !!this.manifest.arrays[name];
   }
+  /**
+   * @param {string} name
+   * @returns {NumArray}
+   */
   array(name) {
     const m = this.manifest.arrays[name];
     if (!m) throw new Error("missing array " + name);
@@ -94,6 +257,10 @@ class Bundle {
     const bytes = this.buf.slice(m.o, m.o + m.n * T.BYTES_PER_ELEMENT);
     return new T(bytes.buffer, 0, m.n);
   }
+  /**
+   * @param {string} name
+   * @returns {string}
+   */
   text(name) {
     const m = this.manifest.strings[name];
     if (!m) throw new Error("missing string " + name);
@@ -101,6 +268,12 @@ class Bundle {
   }
 }
 
+/**
+ * @param {string} s
+ * @param {number} start
+ * @param {number} end
+ * @returns {number[]} flat [lon, lat, ...]
+ */
 function decodePolylineAt(s, start, end) {
   let i = start,
     lat = 0,
@@ -131,11 +304,16 @@ function decodePolylineAt(s, start, end) {
 
 /* A binary min-heap of (float key, int value) pairs on typed arrays. */
 class MinHeap {
+  /** @param {number} [cap] initial capacity; it doubles as needed */
   constructor(cap = 1 << 16) {
     this.k = new Float64Array(cap);
     this.v = new Int32Array(cap);
     this.n = 0;
   }
+  /**
+   * @param {number} key
+   * @param {number} val
+   */
   push(key, val) {
     if (this.n === this.k.length) {
       const nk = new Float64Array(this.k.length * 2),
@@ -150,40 +328,44 @@ class MinHeap {
     let i = this.n++;
     k[i] = key;
     v[i] = val;
+    // indices below this.n are always in bounds, hence the casts
     while (i > 0) {
       const p = (i - 1) >> 1;
-      if (k[p] <= k[i]) break;
-      const tk = k[p],
-        tv = v[p];
-      k[p] = k[i];
-      v[p] = v[i];
+      if (/** @type {number} */ (k[p]) <= /** @type {number} */ (k[i])) break;
+      const tk = /** @type {number} */ (k[p]),
+        tv = /** @type {number} */ (v[p]);
+      k[p] = /** @type {number} */ (k[i]);
+      v[p] = /** @type {number} */ (v[i]);
       k[i] = tk;
       v[i] = tv;
       i = p;
     }
   }
-  /* removes the minimum; its key is left in this.topKey */
+  /** removes the minimum; its key is left in this.topKey
+   * @returns {number} the minimum's value
+   */
   pop() {
     const k = this.k,
       v = this.v;
-    const top = v[0];
-    this.topKey = k[0];
+    const top = /** @type {number} */ (v[0]);
+    /** @type {number} */
+    this.topKey = /** @type {number} */ (k[0]);
     this.n--;
     if (this.n > 0) {
-      k[0] = k[this.n];
-      v[0] = v[this.n];
+      k[0] = /** @type {number} */ (k[this.n]);
+      v[0] = /** @type {number} */ (v[this.n]);
       let i = 0;
       for (;;) {
         const l = 2 * i + 1,
           r = l + 1;
         let m = i;
-        if (l < this.n && k[l] < k[m]) m = l;
-        if (r < this.n && k[r] < k[m]) m = r;
+        if (l < this.n && /** @type {number} */ (k[l]) < /** @type {number} */ (k[m])) m = l;
+        if (r < this.n && /** @type {number} */ (k[r]) < /** @type {number} */ (k[m])) m = r;
         if (m === i) break;
-        const tk = k[m],
-          tv = v[m];
-        k[m] = k[i];
-        v[m] = v[i];
+        const tk = /** @type {number} */ (k[m]),
+          tv = /** @type {number} */ (v[m]);
+        k[m] = /** @type {number} */ (k[i]);
+        v[m] = /** @type {number} */ (v[i]);
         k[i] = tk;
         v[i] = tv;
         i = m;
@@ -195,6 +377,10 @@ class MinHeap {
 
 /* -------------------------------------------------------------- the graph */
 class Graph {
+  /**
+   * @param {Bundle} bundle
+   * @param {GraphMeta} meta
+   */
   constructor(bundle, meta) {
     this.meta = meta;
     this.n = meta.n_nodes;
@@ -230,7 +416,11 @@ class Graph {
       const q = meta.scales.stress || 100,
         s = new Int32Array(this.m);
       for (let a = 0; a < this.m; a++)
-        s[a] = Math.round((this.arcLen[a] * this.edgeStress[this.arcEdge[a]]) / q);
+        s[a] = Math.round(
+          (/** @type {number} */ (this.arcLen[a]) *
+            /** @type {number} */ (this.edgeStress[/** @type {number} */ (this.arcEdge[a])])) /
+            q,
+        );
       this.arcLenStress = s;
     }
 
@@ -245,47 +435,91 @@ class Graph {
     this.heapVal = new Int32Array(1 << 16);
   }
 
+  /**
+   * @param {number} i
+   * @returns {number}
+   */
   nodeLon(i) {
-    return this.lon[i] / this.COORD;
+    return /** @type {number} */ (this.lon[i]) / this.COORD;
   }
+  /**
+   * @param {number} i
+   * @returns {number}
+   */
   nodeLat(i) {
-    return this.lat[i] / this.COORD;
+    return /** @type {number} */ (this.lat[i]) / this.COORD;
   }
+  /**
+   * @param {number} i
+   * @returns {number} elevation in metres
+   */
   nodeZ(i) {
-    return this.nodeElev[i] / this.DM;
+    return /** @type {number} */ (this.nodeElev[i]) / this.DM;
   }
+  /**
+   * @param {Mode} mode
+   * @returns {number}
+   */
   modeBit(mode) {
     return mode === "bike" ? 2 : 1;
   }
+  /**
+   * @param {boolean | undefined} stress
+   * @returns {NumArray}
+   */
   lengths(stress) {
     return stress ? this.arcLenStress : this.arcLen;
   }
 
-  /* Cost of one arc in equivalent metres. Mirrors routing.edge_costs. */
+  /** Cost of one arc in equivalent metres. Mirrors routing.edge_costs.
+   * @param {number} a
+   * @param {Weights} w
+   * @param {number[]} mult
+   * @param {NumArray} [len]
+   * @returns {number}
+   */
   arcCost(a, w, mult, len = this.arcLen) {
-    let c = (len[a] / this.DM) * mult[this.arcCls[a]];
-    c += w.alpha * (this.arcGain[a] / this.CM);
+    let c =
+      (/** @type {number} */ (len[a]) / this.DM) *
+      /** @type {number} */ (mult[/** @type {number} */ (this.arcCls[a])]);
+    c += w.alpha * (/** @type {number} */ (this.arcGain[a]) / this.CM);
     if (w.beta) {
       let pen = 0;
       for (let k = 0; k < this.th.length; k++) {
         const p = w.penalties[k];
-        if (p) pen += p * (this.th[k][a] / this.DM);
+        if (p)
+          pen += p * (/** @type {number} */ (/** @type {NumArray} */ (this.th[k])[a]) / this.DM);
       }
       c += w.beta * pen;
     }
     if (w.gamma && w.extreme) {
-      c += w.gamma * w.extreme * (this.th[this.th.length - 1][a] / this.DM);
+      c +=
+        w.gamma *
+        w.extreme *
+        (/** @type {number} */ (/** @type {NumArray} */ (this.th[this.th.length - 1])[a]) /
+          this.DM);
     }
     return c > 1e-6 ? c : 1e-6;
   }
 
+  /**
+   * @param {Mode} mode
+   * @param {Weights} w
+   * @returns {number[]}
+   */
   multipliers(mode, w) {
     const base = this.meta.multipliers[mode] || [];
     if (w.use_class_multiplier === false) return base.map(() => 1);
     return base;
   }
 
-  /* Dijkstra with a flat binary heap, stopping once the target settles. */
+  /** Dijkstra with a flat binary heap, stopping once the target settles.
+   * @param {number} src
+   * @param {number} dst
+   * @param {Mode} mode
+   * @param {Weights} w
+   * @returns {RouteResult | null}
+   */
   route(src, dst, mode, w) {
     if (src === dst || src < 0 || dst < 0) return null;
     const bit = this.modeBit(mode);
@@ -297,6 +531,10 @@ class Graph {
     let hk = this.heapKey,
       hv = this.heapVal,
       hn = 0;
+    /**
+     * @param {number} key
+     * @param {number} val
+     */
     const push = (key, val) => {
       if (hn === hk.length) {
         const nk = new Float64Array(hk.length * 2),
@@ -311,35 +549,36 @@ class Graph {
       hv[i] = val;
       while (i > 0) {
         const p = (i - 1) >> 1;
-        if (hk[p] <= hk[i]) break;
-        const tk = hk[p],
-          tv = hv[p];
-        hk[p] = hk[i];
-        hv[p] = hv[i];
+        if (/** @type {number} */ (hk[p]) <= /** @type {number} */ (hk[i])) break;
+        const tk = /** @type {number} */ (hk[p]),
+          tv = /** @type {number} */ (hv[p]);
+        hk[p] = /** @type {number} */ (hk[i]);
+        hv[p] = /** @type {number} */ (hv[i]);
         hk[i] = tk;
         hv[i] = tv;
         i = p;
       }
     };
+    /** @returns {[number, number]} the minimum's key and value */
     const pop = () => {
-      const top = hv[0],
-        topk = hk[0];
+      const top = /** @type {number} */ (hv[0]),
+        topk = /** @type {number} */ (hk[0]);
       hn--;
       if (hn > 0) {
-        hk[0] = hk[hn];
-        hv[0] = hv[hn];
+        hk[0] = /** @type {number} */ (hk[hn]);
+        hv[0] = /** @type {number} */ (hv[hn]);
         let i = 0;
         for (;;) {
           const l = 2 * i + 1,
             r = l + 1;
           let s = i;
-          if (l < hn && hk[l] < hk[s]) s = l;
-          if (r < hn && hk[r] < hk[s]) s = r;
+          if (l < hn && /** @type {number} */ (hk[l]) < /** @type {number} */ (hk[s])) s = l;
+          if (r < hn && /** @type {number} */ (hk[r]) < /** @type {number} */ (hk[s])) s = r;
           if (s === i) break;
-          const tk = hk[s],
-            tv = hv[s];
-          hk[s] = hk[i];
-          hv[s] = hv[i];
+          const tk = /** @type {number} */ (hk[s]),
+            tv = /** @type {number} */ (hv[s]);
+          hk[s] = /** @type {number} */ (hk[i]);
+          hv[s] = /** @type {number} */ (hv[i]);
           hk[i] = tk;
           hv[i] = tv;
           i = s;
@@ -360,12 +599,16 @@ class Graph {
       done[u] = 1;
       settled++;
       if (u === dst) break;
-      for (let a = indptr[u]; a < indptr[u + 1]; a++) {
-        if ((this.arcFlags[a] & bit) === 0) continue;
-        const v = head[a];
+      for (
+        let a = /** @type {number} */ (indptr[u]);
+        a < /** @type {number} */ (indptr[u + 1]);
+        a++
+      ) {
+        if ((/** @type {number} */ (this.arcFlags[a]) & bit) === 0) continue;
+        const v = /** @type {number} */ (head[a]);
         if (seen[v] === stamp && done[v]) continue;
         const nd = dv + this.arcCost(a, w, mult, len);
-        if (seen[v] !== stamp || nd < dist[v]) {
+        if (seen[v] !== stamp || nd < /** @type {number} */ (dist[v])) {
           seen[v] = stamp;
           dist[v] = nd;
           prev[v] = a;
@@ -381,18 +624,24 @@ class Graph {
     let v = dst,
       guard = 0;
     while (v !== src) {
-      const a = prev[v];
+      const a = /** @type {number} */ (prev[v]);
       if (a < 0 || guard++ > this.n) return null;
       arcs.push(a);
       v = this.arcTail(a);
     }
     arcs.reverse();
-    return { arcs, cost: dist[dst], settled };
+    return { arcs, cost: /** @type {number} */ (dist[dst]), settled };
   }
 
-  /* Costs from one source to a set of target nodes: the same search as
+  /** Costs from one source to a set of target nodes: the same search as
    * route(), run until every target has settled. Used for the warp's cost
-   * matrix, where one source serves ~100 targets at a time. */
+   * matrix, where one source serves ~100 targets at a time.
+   * @param {number} src
+   * @param {Mode} mode
+   * @param {Weights} w
+   * @param {number[]} targets
+   * @returns {number[]}
+   */
   distances(src, mode, w, targets) {
     const bit = this.modeBit(mode);
     const mult = this.multipliers(mode, w);
@@ -409,6 +658,10 @@ class Graph {
     let hk = this.heapKey,
       hv = this.heapVal,
       hn = 0;
+    /**
+     * @param {number} key
+     * @param {number} val
+     */
     const push = (key, val) => {
       if (hn === hk.length) {
         const nk = new Float64Array(hk.length * 2),
@@ -423,35 +676,36 @@ class Graph {
       hv[i] = val;
       while (i > 0) {
         const p = (i - 1) >> 1;
-        if (hk[p] <= hk[i]) break;
-        const tk = hk[p],
-          tv = hv[p];
-        hk[p] = hk[i];
-        hv[p] = hv[i];
+        if (/** @type {number} */ (hk[p]) <= /** @type {number} */ (hk[i])) break;
+        const tk = /** @type {number} */ (hk[p]),
+          tv = /** @type {number} */ (hv[p]);
+        hk[p] = /** @type {number} */ (hk[i]);
+        hv[p] = /** @type {number} */ (hv[i]);
         hk[i] = tk;
         hv[i] = tv;
         i = p;
       }
     };
+    /** @returns {[number, number]} the minimum's key and value */
     const pop = () => {
-      const top = hv[0],
-        topk = hk[0];
+      const top = /** @type {number} */ (hv[0]),
+        topk = /** @type {number} */ (hk[0]);
       hn--;
       if (hn > 0) {
-        hk[0] = hk[hn];
-        hv[0] = hv[hn];
+        hk[0] = /** @type {number} */ (hk[hn]);
+        hv[0] = /** @type {number} */ (hv[hn]);
         let i = 0;
         for (;;) {
           const l = 2 * i + 1,
             r = l + 1;
           let m = i;
-          if (l < hn && hk[l] < hk[m]) m = l;
-          if (r < hn && hk[r] < hk[m]) m = r;
+          if (l < hn && /** @type {number} */ (hk[l]) < /** @type {number} */ (hk[m])) m = l;
+          if (r < hn && /** @type {number} */ (hk[r]) < /** @type {number} */ (hk[m])) m = r;
           if (m === i) break;
-          const tk = hk[m],
-            tv = hv[m];
-          hk[m] = hk[i];
-          hv[m] = hv[i];
+          const tk = /** @type {number} */ (hk[m]),
+            tv = /** @type {number} */ (hv[m]);
+          hk[m] = /** @type {number} */ (hk[i]);
+          hv[m] = /** @type {number} */ (hv[i]);
           hk[i] = tk;
           hv[i] = tv;
           i = m;
@@ -468,12 +722,16 @@ class Graph {
       if (seen[u] !== stamp || done[u]) continue;
       done[u] = 1;
       if (want[u]) remaining--;
-      for (let a = indptr[u]; a < indptr[u + 1]; a++) {
-        if ((this.arcFlags[a] & bit) === 0) continue;
-        const v = head[a];
+      for (
+        let a = /** @type {number} */ (indptr[u]);
+        a < /** @type {number} */ (indptr[u + 1]);
+        a++
+      ) {
+        if ((/** @type {number} */ (this.arcFlags[a]) & bit) === 0) continue;
+        const v = /** @type {number} */ (head[a]);
         if (seen[v] === stamp && done[v]) continue;
         const nd = dv + this.arcCost(a, w, mult);
-        if (seen[v] !== stamp || nd < dist[v]) {
+        if (seen[v] !== stamp || nd < /** @type {number} */ (dist[v])) {
           seen[v] = stamp;
           dist[v] = nd;
           done[v] = 0;
@@ -481,15 +739,23 @@ class Graph {
         }
       }
     }
-    return targets.map((t) => (seen[t] === stamp && done[t] ? dist[t] : Infinity));
+    return targets.map((t) =>
+      seen[t] === stamp && done[t] ? /** @type {number} */ (dist[t]) : Infinity,
+    );
   }
 
-  /* One Dijkstra over a per-arc cost array: forward from src, or with
+  /** One Dijkstra over a per-arc cost array: forward from src, or with
    * reverse, backward into src (dist[v] is then the cost of v -> src and
    * prev[v] the first arc of that path). It can stop at a target, and edges
    * marked in pen cost (1 + penK) times as much, which is how a loop's way
    * home is pushed off the streets it went out on. len and gain carry the
-   * real length and climbing (m) of each tree path. */
+   * real length and climbing (m) of each tree path.
+   * @param {number} src
+   * @param {Mode} mode
+   * @param {Float64Array} cost
+   * @param {TreeOptions} [options]
+   * @returns {Tree}
+   */
   tree(
     src,
     mode,
@@ -512,6 +778,7 @@ class Graph {
     const cosT = Math.cos((this.nodeLat(src) * Math.PI) / 180);
     const tx = astar ? this.nodeLon(target) * 111320 * cosT : 0,
       ty = astar ? this.nodeLat(target) * 110540 : 0;
+    /** @type {(v: number) => number} */
     const h = astar
       ? (v) =>
           minPerM * Math.hypot(this.nodeLon(v) * 111320 * cosT - tx, this.nodeLat(v) * 110540 - ty)
@@ -521,35 +788,52 @@ class Graph {
     while (heap.n > 0) {
       const u = heap.pop();
       if (done[u]) continue;
-      const du = dist[u];
+      const du = /** @type {number} */ (dist[u]);
       done[u] = 1;
       if (u === target) break;
-      const lo = reverse ? rev.indptr[u] : this.indptr[u],
-        hi = reverse ? rev.indptr[u + 1] : this.indptr[u + 1];
+      // rev is set whenever reverse is
+      const lo = reverse
+          ? /** @type {number} */ (/** @type {ReverseAdjacency} */ (rev).indptr[u])
+          : /** @type {number} */ (this.indptr[u]),
+        hi = reverse
+          ? /** @type {number} */ (/** @type {ReverseAdjacency} */ (rev).indptr[u + 1])
+          : /** @type {number} */ (this.indptr[u + 1]);
       for (let k = lo; k < hi; k++) {
-        const a = reverse ? rev.arcs[k] : k;
-        if ((this.arcFlags[a] & bit) === 0) continue;
-        const v = reverse ? rev.tail[a] : this.head[a];
-        let c = cost[a];
-        if ((pen !== null && pen[this.arcEdge[a]]) || (penNode !== null && penNode[v]))
+        const a = reverse
+          ? /** @type {number} */ (/** @type {ReverseAdjacency} */ (rev).arcs[k])
+          : k;
+        if ((/** @type {number} */ (this.arcFlags[a]) & bit) === 0) continue;
+        const v = reverse
+          ? /** @type {number} */ (/** @type {ReverseAdjacency} */ (rev).tail[a])
+          : /** @type {number} */ (this.head[a]);
+        let c = /** @type {number} */ (cost[a]);
+        if (
+          (pen !== null && pen[/** @type {number} */ (this.arcEdge[a])]) ||
+          (penNode !== null && penNode[v])
+        )
           c *= 1 + penK;
         const nd = du + c;
-        if (nd < dist[v]) {
+        if (nd < /** @type {number} */ (dist[v])) {
           dist[v] = nd;
           prev[v] = a;
           heap.push(nd + h(v), v);
-          len[v] = len[u] + this.arcLen[a] / this.DM;
-          gain[v] = gain[u] + this.arcGain[a] / this.CM;
+          len[v] =
+            /** @type {number} */ (len[u]) + /** @type {number} */ (this.arcLen[a]) / this.DM;
+          gain[v] =
+            /** @type {number} */ (gain[u]) + /** @type {number} */ (this.arcGain[a]) / this.CM;
         }
       }
     }
     return { src, dist, prev, len, gain, done, reverse };
   }
 
-  /* Corners a loop may turn at: real intersections, where at least three
+  /** Corners a loop may turn at: real intersections, where at least three
    * ways meet and at least one is a street (not only footways, service
    * lanes or steps), so a loop never turns around at the end of a
-   * parking-lot lane. Cached per mode. */
+   * parking-lot lane. Cached per mode.
+   * @param {Mode} mode
+   * @returns {Uint8Array}
+   */
   corners(mode) {
     this._corners = this._corners || {};
     if (this._corners[mode]) return this._corners[mode];
@@ -573,47 +857,68 @@ class Graph {
     for (let u = 0; u < this.n; u++) {
       let deg = 0,
         onStreet = false;
+      /**
+       * @param {number} v
+       * @param {number} a
+       */
       const touch = (v, a) => {
-        if ((this.arcFlags[a] & bit) === 0) return;
-        if (street[this.arcCls[a]]) onStreet = true;
+        if ((/** @type {number} */ (this.arcFlags[a]) & bit) === 0) return;
+        if (street[/** @type {number} */ (this.arcCls[a])]) onStreet = true;
         if (seen[v] !== u) {
           seen[v] = u;
           deg++;
         }
       };
-      for (let a = this.indptr[u]; a < this.indptr[u + 1]; a++) touch(this.head[a], a);
-      for (let k = indptr[u]; k < indptr[u + 1]; k++) touch(tail[arcs[k]], arcs[k]);
+      for (
+        let a = /** @type {number} */ (this.indptr[u]);
+        a < /** @type {number} */ (this.indptr[u + 1]);
+        a++
+      )
+        touch(/** @type {number} */ (this.head[a]), a);
+      for (
+        let k = /** @type {number} */ (indptr[u]);
+        k < /** @type {number} */ (indptr[u + 1]);
+        k++
+      )
+        touch(
+          /** @type {number} */ (tail[/** @type {number} */ (arcs[k])]),
+          /** @type {number} */ (arcs[k]),
+        );
       ok[u] = deg >= 3 && onStreet ? 1 : 0;
     }
     this._corners[mode] = ok;
     return ok;
   }
 
-  /* arcs from the tree's root to v (forward tree) or from v to the root
-   * (reverse tree) */
+  /** arcs from the tree's root to v (forward tree) or from v to the root
+   * (reverse tree)
+   * @param {Tree} t
+   * @param {number} v
+   * @returns {number[] | null}
+   */
   treePath(t, v) {
     const tail = this.reverse().tail,
-      arcs = [];
+      arcs = /** @type {number[]} */ ([]);
     if (!t.done[v]) return null;
     if (!t.reverse) {
       for (let guard = 0; v !== t.src; guard++) {
-        const a = t.prev[v];
+        const a = /** @type {number} */ (t.prev[v]);
         if (a < 0 || guard > this.n) return null;
         arcs.push(a);
-        v = tail[a];
+        v = /** @type {number} */ (tail[a]);
       }
       return arcs.reverse();
     }
     for (let guard = 0; v !== t.src; guard++) {
-      const a = t.prev[v];
+      const a = /** @type {number} */ (t.prev[v]);
       if (a < 0 || guard > this.n) return null;
       arcs.push(a);
-      v = this.head[a];
+      v = /** @type {number} */ (this.head[a]);
     }
     return arcs;
   }
 
-  /* Flat loops: routes that start and end at src and run about targetM
+  /** Flat loops: routes that start and end at src and run about targetM
    * metres, as flat as the streets around src allow.
    *
    * A loop is built from turnaround corners. One search outward and one
@@ -633,7 +938,12 @@ class Graph {
    * search.last is the most recent well-shaped loop built, so the page can
    * show the scan as it happens.
    * Results: search.loops (best first, mutually distinct) and
-   * search.accepted (every loop that met the length and overlap tests). */
+   * search.accepted (every loop that met the length and overlap tests).
+   * @param {number} src
+   * @param {Mode} mode
+   * @param {LoopOptions} options
+   * @returns {LoopSearch}
+   */
   loops(
     src,
     mode,
@@ -652,34 +962,43 @@ class Graph {
       tolM = 0.25 * 1609.344,
       retries = 3,
       outBack = false,
-    } = {},
+    } = /** @type {LoopOptions} */ ({}),
   ) {
     const g = this,
       T = targetM,
       L = g.lengths(stress);
     // a few metres per arc keeps routes off zigzags through tiny segments
     const cost = new Float64Array(g.m);
-    for (let a = 0; a < g.m; a++) cost[a] = L[a] / g.DM + (alpha * g.arcGain[a]) / g.CM + perArc;
-    const search = {
-      loops: [],
-      accepted: [],
-      loose: [],
-      all: [],
+    for (let a = 0; a < g.m; a++)
+      cost[a] =
+        /** @type {number} */ (L[a]) / g.DM +
+        (alpha * /** @type {number} */ (g.arcGain[a])) / g.CM +
+        perArc;
+    // step is attached below, before the search is handed out
+    const search = /** @type {LoopSearch} */ ({
+      loops: /** @type {Loop[]} */ ([]),
+      accepted: /** @type {Loop[]} */ ([]),
+      loose: /** @type {Loop[]} */ ([]),
+      all: /** @type {Loop[]} */ ([]),
       tried: 0,
       done: false,
       ms: 0,
       shortfall: false,
-    };
+    });
     // a loop counts when it is within tolM of the target (or tol of it, if
     // that is tighter, for short loops); corners are rescaled up to
     // `retries` times to land in that window
     const t0 = performance.now();
     const band = Math.min(tol * T, tolM);
-    let F = null,
-      B = null,
-      bySector = null;
+    // F, B, bySector and nodeGrid are built by the first step(), before any
+    // job that reads them runs
+    let F = /** @type {Tree | null} */ (null),
+      B = /** @type {Tree | null} */ (null),
+      bySector = /** @type {number[][] | null} */ (null);
+    /** @type {(() => void)[]} */
     const jobs = [];
     const cosLat = Math.cos((g.nodeLat(src) * Math.PI) / 180);
+    /** @param {number} v */
     const sectorOf = (v) => {
       const dx = (g.nodeLon(v) - g.nodeLon(src)) * cosLat,
         dy = g.nodeLat(v) - g.nodeLat(src);
@@ -687,13 +1006,24 @@ class Graph {
     };
     // the corner in a sector whose way out is about `want` metres and whose
     // estimated loop (flattest out + flattest back) climbs least
+    /**
+     * @param {number} s
+     * @param {number} want
+     * @param {number} spread
+     * @param {boolean} withBack
+     * @returns {number} the corner, or -1
+     */
     const pick = (s, want, spread, withBack) => {
       let best = -1,
         bestScore = Infinity;
-      for (const v of bySector[s]) {
-        const lf = F.len[v];
+      for (const v of /** @type {number[]} */ (/** @type {number[][]} */ (bySector)[s])) {
+        const lf = /** @type {number} */ (/** @type {Tree} */ (F).len[v]);
         if (Math.abs(lf - want) > spread) continue;
-        const score = F.gain[v] + (withBack ? B.gain[v] : 0) + 0.002 * Math.abs(lf - want);
+        const score =
+          /** @type {number} */ (/** @type {Tree} */ (F).gain[v]) +
+          (withBack ? /** @type {number} */ (/** @type {Tree} */ (B).gain[v]) : 0) +
+          0.002 * Math.abs(lf - want);
+
         if (score < bestScore) {
           bestScore = score;
           best = v;
@@ -705,36 +1035,58 @@ class Graph {
     // (0.8 on a protected lane in calm-streets mode), less a little for the
     // quantised lengths: the floor that keeps A* exact
     const minPerM = stress ? 0.78 : 0.98;
+    /**
+     * @param {number} from
+     * @param {number} to
+     * @param {Uint8Array} pen
+     * @param {Uint8Array} penNode
+     * @returns {number[] | null}
+     */
     const leg = (from, to, pen, penNode) => {
       const t = g.tree(from, mode, cost, { target: to, pen, penNode, penK, minPerM });
       return t.done[to] ? g.treePath(t, to) : null;
     };
+    /**
+     * @param {Uint8Array} pen
+     * @param {number[]} arcs
+     */
     const mark = (pen, arcs) => {
-      for (const a of arcs) pen[g.arcEdge[a]] = 1;
+      for (const a of arcs) pen[/** @type {number} */ (g.arcEdge[a])] = 1;
     };
     // corners within nearM of the streets already used, except around the
     // start, which every leg has to pass through: the way home avoids them,
     // so a loop is not the same street out and the next street back
     const XM = 111320 * Math.cos((g.nodeLat(src) * Math.PI) / 180),
       YM = 110540;
-    const px = (v) => g.nodeLon(v) * XM,
-      py = (v) => g.nodeLat(v) * YM;
+    const px = (/** @type {number} */ v) => g.nodeLon(v) * XM,
+      py = (/** @type {number} */ v) => g.nodeLat(v) * YM;
     const sx = px(src),
       sy = py(src);
-    let nodeGrid = null; // cell -> nodes, over every corner the loops can reach
+    // cell -> nodes, over every corner the loops can reach
+    let nodeGrid = /** @type {Map<number, number[]> | null} */ (null);
+    /**
+     * @param {number} cx
+     * @param {number} cy
+     */
     const cellKey = (cx, cy) => cx * 100003 + cy;
+    /**
+     * @param {Uint8Array} penNode
+     * @param {number[]} arcs
+     */
     const markNear = (penNode, arcs) => {
       const r2 = nearM * nearM,
         home2 = (1.5 * nearM) ** 2;
       for (const a of arcs) {
-        const v0 = g.head[a],
+        const v0 = /** @type {number} */ (g.head[a]),
           x0 = px(v0),
           y0 = py(v0);
         const cx = Math.floor(x0 / nearM),
           cy = Math.floor(y0 / nearM);
         for (let i = -1; i <= 1; i++)
           for (let j = -1; j <= 1; j++) {
-            const cell = nodeGrid.get(cellKey(cx + i, cy + j));
+            const cell = /** @type {Map<number, number[]>} */ (nodeGrid).get(
+              cellKey(cx + i, cy + j),
+            );
             if (!cell) continue;
             for (const v of cell) {
               if (penNode[v]) continue;
@@ -746,16 +1098,17 @@ class Graph {
           }
       }
     };
+    /** @param {number[]} arcs */
     const measure = (arcs) => {
       let len = 0,
         gain = 0,
         rep = 0;
       const seen = new Map();
       for (const a of arcs) {
-        const l = g.arcLen[a] / g.DM,
+        const l = /** @type {number} */ (g.arcLen[a]) / g.DM,
           e = g.arcEdge[a];
         len += l;
-        gain += g.arcGain[a] / g.CM;
+        gain += /** @type {number} */ (g.arcGain[a]) / g.CM;
         if (seen.has(e)) rep += l;
         else seen.set(e, 1);
       }
@@ -763,8 +1116,8 @@ class Graph {
         prevX = sx,
         prevY = sy;
       for (const a of arcs) {
-        const x = px(g.head[a]) - sx,
-          y = py(g.head[a]) - sy;
+        const x = px(/** @type {number} */ (g.head[a])) - sx,
+          y = py(/** @type {number} */ (g.head[a])) - sy;
         area += (prevX - sx) * y - x * (prevY - sy);
         prevX = x + sx;
         prevY = y + sy;
@@ -772,6 +1125,11 @@ class Graph {
       const round = len > 0 ? (4 * Math.PI * Math.abs(area / 2)) / (len * len) : 0;
       return { len, gain, overlap: len > 0 ? rep / len : 1, round };
     };
+    /**
+     * @param {number[] | null} arcs
+     * @param {LoopKind} kind
+     * @returns {Loop | null}
+     */
     const consider = (arcs, kind) => {
       if (!arcs || !arcs.length) return null;
       search.tried++;
@@ -787,10 +1145,15 @@ class Graph {
       else if (shaped && Math.abs(m.len - T) <= tol * T) search.loose.push(r);
       return r;
     };
+    /**
+     * @param {number} s
+     * @param {number} want
+     * @param {number} tries
+     */
     const petal = (s, want, tries) => {
       const w = pick(s, want, Math.max(150, 0.06 * T), true);
       if (w < 0) return;
-      const out = g.treePath(F, w);
+      const out = g.treePath(/** @type {Tree} */ (F), w);
       if (!out) return;
       const pen = new Uint8Array(g.meta.n_edges),
         penNode = new Uint8Array(g.n);
@@ -805,11 +1168,16 @@ class Graph {
     };
     // the flattest way out to a turnaround about half the target away, and
     // the flattest way back, which is usually the same streets
+    /**
+     * @param {number} s
+     * @param {number} want
+     * @param {number} tries
+     */
     const outAndBack = (s, want, tries) => {
       const w = pick(s, want, Math.max(150, 0.06 * T), true);
       if (w < 0) return;
-      const out = g.treePath(F, w),
-        back = g.treePath(B, w);
+      const out = g.treePath(/** @type {Tree} */ (F), w),
+        back = g.treePath(/** @type {Tree} */ (B), w);
       if (!out || !back) return;
       const r = consider(out.concat(back), "outback");
       if (r && tries > 0 && Math.abs(r.length - T) > band) {
@@ -818,21 +1186,26 @@ class Graph {
     };
     // out to the first corner, across each next one, then home; every leg
     // avoids the streets the loop has already used
+    /**
+     * @param {number[]} ss
+     * @param {number} want
+     * @param {number} tries
+     */
     const polygon = (ss, want, tries) => {
       const sp = Math.max(150, 0.06 * T);
       const vs = ss.map((s, i) => pick(s, want, sp, i === ss.length - 1));
       if (vs.some((v) => v < 0) || new Set(vs).size < vs.length) return;
       const pen = new Uint8Array(g.meta.n_edges),
         penNode = new Uint8Array(g.n);
-      let arcs = g.treePath(F, vs[0]);
+      let arcs = g.treePath(/** @type {Tree} */ (F), /** @type {number} */ (vs[0]));
       if (!arcs) return;
       mark(pen, arcs);
       markNear(penNode, arcs);
       for (const [from, to] of vs
         .slice(1)
-        .map((v, i) => [vs[i], v])
-        .concat([[vs[vs.length - 1], src]])) {
-        const l = leg(from, to, pen, penNode);
+        .map((v, i) => [/** @type {number} */ (vs[i]), v])
+        .concat([[/** @type {number} */ (vs[vs.length - 1]), src]])) {
+        const l = leg(/** @type {number} */ (from), /** @type {number} */ (to), pen, penNode);
         if (!l) return;
         mark(pen, l);
         markNear(penNode, l);
@@ -848,11 +1221,11 @@ class Graph {
       if (!F) {
         F = g.tree(src, mode, cost);
         B = g.tree(src, mode, cost, { reverse: true });
-        bySector = Array.from({ length: sectors }, () => []);
+        bySector = Array.from({ length: sectors }, () => /** @type {number[]} */ ([]));
         const corner = g.corners(mode);
         nodeGrid = new Map();
         for (let v = 0; v < g.n; v++) {
-          if (!F.done[v] || F.len[v] > 0.75 * T) continue;
+          if (!F.done[v] || /** @type {number} */ (F.len[v]) > 0.75 * T) continue;
           const k = cellKey(Math.floor(px(v) / nearM), Math.floor(py(v) / nearM));
           let c = nodeGrid.get(k);
           if (!c) nodeGrid.set(k, (c = []));
@@ -860,9 +1233,9 @@ class Graph {
         }
         for (let v = 0; v < g.n; v++) {
           if (!F.done[v] || !B.done[v] || v === src || !corner[v]) continue;
-          const lf = F.len[v];
+          const lf = /** @type {number} */ (F.len[v]);
           if (lf < 0.1 * T || lf > 0.7 * T) continue;
-          bySector[sectorOf(v)].push(v);
+          /** @type {number[]} */ (bySector[sectorOf(v)]).push(v);
         }
         for (let s = 0; s < sectors; s++) {
           if (outBack) jobs.push(() => outAndBack(s, 0.5 * T, retries));
@@ -887,27 +1260,31 @@ class Graph {
         if (performance.now() - start > budgetMs) return false;
       }
       while (jobs.length) {
-        jobs.shift()();
+        /** @type {() => void} */ (jobs.shift())();
         if (performance.now() - start > budgetMs) return false;
       }
       // rank, then keep loops that are not near-copies of a better one. When
       // nothing came close enough to the target (a long loop from the edge
       // of the city), offer the loop that came closest, and say so.
+      /** @type {Loop[]} */
       let pool = search.accepted.slice();
       if (!pool.length && search.loose.length) {
         pool = search.loose.slice();
         search.shortfall = true;
       }
       if (!pool.length && search.all.length) {
-        const closest = search.all
-          .slice()
-          .sort((x, y) => Math.abs(x.length - T) - Math.abs(y.length - T))[0];
+        const closest = /** @type {Loop} */ (
+          search.all.slice().sort((x, y) => Math.abs(x.length - T) - Math.abs(y.length - T))[0]
+        );
         pool = [closest];
         search.shortfall = true;
       }
       pool.sort((x, y) => x.gain - y.gain || Math.abs(x.length - T) - Math.abs(y.length - T));
-      const edges = (r) => new Set(r.arcs.map((a) => g.arcEdge[a]));
+      /** @param {Loop} r */
+      const edges = (r) => new Set(r.arcs.map((a) => /** @type {number} */ (g.arcEdge[a])));
+      /** @type {{ r: Loop, edges: Set<number> }[]} */
       const picked = [];
+
       for (const r of pool) {
         const er = edges(r);
         const similar = picked.some((p) => {
@@ -920,7 +1297,9 @@ class Graph {
       }
       search.loops = picked.map((p) => p.r);
       const gains = search.accepted.map((r) => r.gain).sort((x, y) => x - y);
-      search.medianGain = gains.length ? gains[Math.floor(gains.length / 2)] : NaN;
+      search.medianGain = gains.length
+        ? /** @type {number} */ (gains[Math.floor(gains.length / 2)])
+        : NaN;
       search.ms = performance.now() - t0;
       search.done = true;
       return true;
@@ -928,29 +1307,42 @@ class Graph {
     return search;
   }
 
-  /* Reverse adjacency (arcs grouped by head node), built on first use. */
+  /** Reverse adjacency (arcs grouped by head node), built on first use.
+   * @returns {ReverseAdjacency}
+   */
   reverse() {
     if (this._rev) return this._rev;
     const n = this.n,
       m = this.m;
     const indptr = new Int32Array(n + 1);
-    for (let a = 0; a < m; a++) indptr[this.head[a] + 1]++;
-    for (let i = 0; i < n; i++) indptr[i + 1] += indptr[i];
+    for (let a = 0; a < m; a++)
+      /** @type {number} */ (indptr[/** @type {number} */ (this.head[a]) + 1])++;
+    for (let i = 0; i < n; i++)
+      /** @type {number} */ (indptr[i + 1]) += /** @type {number} */ (indptr[i]);
     const arcs = new Int32Array(m),
       tail = new Int32Array(m),
       fill = indptr.slice(0, n);
     for (let u = 0; u < n; u++) {
-      for (let a = this.indptr[u]; a < this.indptr[u + 1]; a++) {
+      for (
+        let a = /** @type {number} */ (this.indptr[u]);
+        a < /** @type {number} */ (this.indptr[u + 1]);
+        a++
+      ) {
         tail[a] = u;
-        arcs[fill[this.head[a]]++] = a;
+        arcs[/** @type {number} */ (fill[/** @type {number} */ (this.head[a])])++] = a;
       }
     }
     this._rev = { indptr, arcs, tail };
     return this._rev;
   }
 
-  /* Exact lower bound from every node to dst on one per-arc weight (a
-   * reverse Dijkstra), in that weight's own integer units. */
+  /** Exact lower bound from every node to dst on one per-arc weight (a
+   * reverse Dijkstra), in that weight's own integer units.
+   * @param {number} dst
+   * @param {Mode} mode
+   * @param {NumArray} weight
+   * @returns {Float64Array}
+   */
   boundsTo(dst, mode, weight) {
     const { indptr, arcs, tail } = this.reverse();
     const bit = this.modeBit(mode);
@@ -962,14 +1354,18 @@ class Graph {
     while (heap.n > 0) {
       const u = heap.pop(),
         du = heap.topKey;
-      if (done[u] || du > dist[u]) continue;
+      if (done[u] || du > /** @type {number} */ (dist[u])) continue;
       done[u] = 1;
-      for (let k = indptr[u]; k < indptr[u + 1]; k++) {
-        const a = arcs[k];
-        if ((this.arcFlags[a] & bit) === 0) continue;
-        const v = tail[a],
-          nd = du + weight[a];
-        if (nd < dist[v]) {
+      for (
+        let k = /** @type {number} */ (indptr[u]);
+        k < /** @type {number} */ (indptr[u + 1]);
+        k++
+      ) {
+        const a = /** @type {number} */ (arcs[k]);
+        if ((/** @type {number} */ (this.arcFlags[a]) & bit) === 0) continue;
+        const v = /** @type {number} */ (tail[a]),
+          nd = du + /** @type {number} */ (weight[a]);
+        if (nd < /** @type {number} */ (dist[v])) {
           dist[v] = nd;
           heap.push(nd, v);
         }
@@ -978,7 +1374,7 @@ class Graph {
     return dist;
   }
 
-  /* The whole distance-versus-climbing frontier between two nodes: every
+  /** The whole distance-versus-climbing frontier between two nodes: every
    * route that no other route beats on both counts, not only the ones a
    * weighted sum can reach. This is BOA* (Hernandez et al., bi-objective
    * A* with lazy dominance checks): labels (node, length, gain) expand in
@@ -999,7 +1395,13 @@ class Graph {
    * end of the frontier, which it finds first.
    *
    * Returns a search object; call step(budgetMs) until it reports done, so
-   * the page can keep painting. */
+   * the page can keep painting.
+   * @param {number} src
+   * @param {number} dst
+   * @param {Mode} mode
+   * @param {ParetoOptions} [options]
+   * @returns {ParetoSearch}
+   */
   pareto(
     src,
     dst,
@@ -1028,6 +1430,10 @@ class Graph {
     let nl = 0;
     const grow = () => {
       cap *= 2;
+      /**
+       * @param {Int32Array<ArrayBuffer>} old
+       * @param {Int32ArrayConstructor} T
+       */
       const r = (old, T) => {
         const a = new T(cap);
         a.set(old);
@@ -1041,6 +1447,13 @@ class Graph {
     };
     const K = 1 << 20; // f1 in the high bits, f2 in the low: expansion order (f1, f2)
     const heap = new MinHeap();
+    /**
+     * @param {number} node
+     * @param {number} g1
+     * @param {number} g2
+     * @param {number} parent
+     * @param {number} arc
+     */
     const add = (node, g1, g2, parent, arc) => {
       if (nl === cap) grow();
       lNode[nl] = node;
@@ -1048,11 +1461,16 @@ class Graph {
       lG2[nl] = g2;
       lParent[nl] = parent;
       lArc[nl] = arc;
-      heap.push((g1 + h1[node]) * K + Math.min(g2 + h2[node], K - 1), nl);
+      heap.push(
+        (g1 + /** @type {number} */ (h1[node])) * K +
+          Math.min(g2 + /** @type {number} */ (h2[node]), K - 1),
+        nl,
+      );
       nl++;
     };
+    /** @type {ParetoSearch} */
     const search = { solutions: [], done: false, expanded: 0, labels: 0, truncated: false };
-    if (src === dst || !Number.isFinite(h1[src])) {
+    if (src === dst || !Number.isFinite(/** @type {number} */ (h1[src]))) {
       search.done = true;
       return search;
     }
@@ -1064,19 +1482,27 @@ class Graph {
       while (heap.n > 0) {
         if ((++n & 1023) === 0 && performance.now() - t0 > budgetMs) return false;
         const x = heap.pop();
-        const node = lNode[x],
-          g1 = lG1[x],
-          g2 = lG2[x];
-        if (g2 + (node === dst ? eps : epsNode) > g2min[node] || g2 + h2[node] + eps > g2min[dst])
+        const node = /** @type {number} */ (lNode[x]),
+          g1 = /** @type {number} */ (lG1[x]),
+          g2 = /** @type {number} */ (lG2[x]);
+        if (
+          g2 + (node === dst ? eps : epsNode) > /** @type {number} */ (g2min[node]) ||
+          g2 + /** @type {number} */ (h2[node]) + eps > /** @type {number} */ (g2min[dst])
+        )
           continue;
         g2min[node] = g2;
         search.expanded++;
         if (node === dst) {
           const arcs = [];
-          for (let y = x; lParent[y] >= 0; y = lParent[y]) arcs.push(lArc[y]);
+          for (
+            let y = x;
+            /** @type {number} */ (lParent[y]) >= 0;
+            y = /** @type {number} */ (lParent[y])
+          )
+            arcs.push(/** @type {number} */ (lArc[y]));
           arcs.reverse();
           let real = 0;
-          for (const a of arcs) real += g.arcLen[a];
+          for (const a of arcs) real += /** @type {number} */ (g.arcLen[a]);
           search.solutions.push({
             arcs,
             length: real / g.DM,
@@ -1085,13 +1511,25 @@ class Graph {
           });
           continue;
         }
-        for (let a = g.indptr[node]; a < g.indptr[node + 1]; a++) {
-          if ((g.arcFlags[a] & bit) === 0) continue;
-          const v = g.head[a],
-            n1 = g1 + len[a],
-            n2 = g2 + g.arcGain[a];
-          if (n1 + h1[v] > dCap || n2 + h2[v] > gCap) continue;
-          if (n2 + epsNode > g2min[v] || n2 + h2[v] + eps > g2min[dst]) continue;
+        for (
+          let a = /** @type {number} */ (g.indptr[node]);
+          a < /** @type {number} */ (g.indptr[node + 1]);
+          a++
+        ) {
+          if ((/** @type {number} */ (g.arcFlags[a]) & bit) === 0) continue;
+          const v = /** @type {number} */ (g.head[a]),
+            n1 = g1 + /** @type {number} */ (len[a]),
+            n2 = g2 + /** @type {number} */ (g.arcGain[a]);
+          if (
+            n1 + /** @type {number} */ (h1[v]) > dCap ||
+            n2 + /** @type {number} */ (h2[v]) > gCap
+          )
+            continue;
+          if (
+            n2 + epsNode > /** @type {number} */ (g2min[v]) ||
+            n2 + /** @type {number} */ (h2[v]) + eps > /** @type {number} */ (g2min[dst])
+          )
+            continue;
           add(v, n1, n2, x, a);
         }
         if (nl > maxLabels) {
@@ -1106,22 +1544,35 @@ class Graph {
     return search;
   }
 
-  /* Arc index for an (edge id, reversed) pair. Built on first use; the map
+  /** Arc index for an (edge id, reversed) pair. Built on first use; the map
    * itself does not need it, but it makes the router addressable from tests
-   * and from the console. */
+   * and from the console.
+   * @param {number} edgeId
+   * @param {boolean} reversed
+   * @returns {number} the arc, or -1
+   */
   arcOf(edgeId, reversed) {
     if (!this._arcLookup) {
       this._arcLookup = new Map();
       for (let a = 0; a < this.m; a++) {
-        this._arcLookup.set(this.arcEdge[a] * 2 + (this.arcFlags[a] & 4 ? 1 : 0), a);
+        this._arcLookup.set(
+          /** @type {number} */ (this.arcEdge[a]) * 2 +
+            (/** @type {number} */ (this.arcFlags[a]) & 4 ? 1 : 0),
+          a,
+        );
       }
     }
     const a = this._arcLookup.get(edgeId * 2 + (reversed ? 1 : 0));
     return a === undefined ? -1 : a;
   }
 
-  /* Total cost of an explicit arc sequence, for comparison against other
-   * implementations of the same cost model. */
+  /** Total cost of an explicit arc sequence, for comparison against other
+   * implementations of the same cost model.
+   * @param {number[]} arcs
+   * @param {Mode} mode
+   * @param {Weights} w
+   * @returns {number}
+   */
   pathCost(arcs, mode, w) {
     const mult = this.multipliers(mode, w);
     let c = 0;
@@ -1129,20 +1580,26 @@ class Graph {
     return c;
   }
 
-  /* tail node of an arc, by binary search over the CSR row pointers */
+  /** tail node of an arc, by binary search over the CSR row pointers
+   * @param {number} a
+   * @returns {number}
+   */
   arcTail(a) {
     const p = this.indptr;
     let lo = 0,
       hi = this.n;
     while (lo < hi) {
       const mid = (lo + hi) >> 1;
-      if (p[mid + 1] <= a) lo = mid + 1;
+      if (/** @type {number} */ (p[mid + 1]) <= a) lo = mid + 1;
       else hi = mid;
     }
     return lo;
   }
 
-  /* Aggregate a route exactly as routing.summarise_route does. */
+  /** Aggregate a route exactly as routing.summarise_route does.
+   * @param {number[]} arcs
+   * @returns {RouteSummary}
+   */
   summarise(arcs) {
     let dist = 0,
       gain = 0,
@@ -1153,12 +1610,12 @@ class Graph {
       steep = 0;
     const th = Array.from({ length: this.th.length }, () => 0);
     for (const a of arcs) {
-      const L = this.arcLen[a] / this.DM;
+      const L = /** @type {number} */ (this.arcLen[a]) / this.DM;
       dist += L;
-      stressed += this.arcLenStress[a] / this.DM;
-      gain += this.arcGain[a] / this.CM;
-      loss += this.arcLoss[a] / this.CM;
-      const g = this.arcMaxGrade[a] / this.GRADE;
+      stressed += /** @type {number} */ (this.arcLenStress[a]) / this.DM;
+      gain += /** @type {number} */ (this.arcGain[a]) / this.CM;
+      loss += /** @type {number} */ (this.arcLoss[a]) / this.CM;
+      const g = /** @type {number} */ (this.arcMaxGrade[a]) / this.GRADE;
       if (g > maxg) maxg = g;
       // the steepest figure the route page shows: over a block shorter than
       // 15 m a peak grade is lidar noise (a 3 m stub at Cesar Chavez reads
@@ -1167,10 +1624,17 @@ class Graph {
       const sg =
         L >= 15
           ? g
-          : Math.max(0, (this.arcGain[a] - this.arcLoss[a]) / this.CM / Math.max(L, 1e-6));
+          : Math.max(
+              0,
+              (/** @type {number} */ (this.arcGain[a]) - /** @type {number} */ (this.arcLoss[a])) /
+                this.CM /
+                Math.max(L, 1e-6),
+            );
       if (sg > steep) steep = sg;
-      wgrade += (this.arcMeanGrade[a] / this.GRADE) * L;
-      for (let k = 0; k < th.length; k++) th[k] += this.th[k][a] / this.DM;
+      wgrade += (/** @type {number} */ (this.arcMeanGrade[a]) / this.GRADE) * L;
+      for (let k = 0; k < th.length; k++)
+        /** @type {number} */ (th[k]) +=
+          /** @type {number} */ (/** @type {NumArray} */ (this.th[k])[a]) / this.DM;
     }
     if (!arcs.length) maxg = 0;
     const prof = this.profile(arcs);
@@ -1184,41 +1648,51 @@ class Graph {
       avg_abs_grade: dist > 0 ? wgrade / dist : 0,
       thresholds: th,
       n_edges: arcs.length,
-      start_elev_m: prof.z.length ? prof.z[0] : 0,
-      end_elev_m: prof.z.length ? prof.z[prof.z.length - 1] : 0,
+      start_elev_m: prof.z.length ? /** @type {number} */ (prof.z[0]) : 0,
+      end_elev_m: prof.z.length ? /** @type {number} */ (prof.z[prof.z.length - 1]) : 0,
       profile: prof,
     };
   }
 
-  /* Elevation series along a route, sampled at every intersection. */
+  /** Elevation series along a route, sampled at every intersection.
+   * @param {number[]} arcs
+   * @returns {{ d: number[], z: number[] }}
+   */
   profile(arcs) {
-    const d = [],
-      z = [];
+    const d = /** @type {number[]} */ ([]),
+      z = /** @type {number[]} */ ([]);
     let acc = 0;
     if (!arcs.length) return { d, z };
-    const first = this.arcTail(arcs[0]);
+    const first = this.arcTail(/** @type {number} */ (arcs[0]));
     d.push(0);
     z.push(this.nodeZ(first));
     for (const a of arcs) {
-      acc += this.arcLen[a] / this.DM;
+      acc += /** @type {number} */ (this.arcLen[a]) / this.DM;
       d.push(acc);
-      z.push(this.nodeZ(this.head[a]));
+      z.push(this.nodeZ(/** @type {number} */ (this.head[a])));
     }
     return { d, z };
   }
 
-  /* Route geometry in [lat,lon] pairs, honouring per-arc direction. */
+  /** Route geometry in [lat,lon] pairs, honouring per-arc direction.
+   * @param {number[]} arcs
+   * @param {Geometry} geom
+   * @returns {number[][]}
+   */
   geometry(arcs, geom) {
+    /** @type {number[][]} */
     const out = [];
     for (const a of arcs) {
-      let pts = geom.edgeCoords(this.arcEdge[a]);
-      if (this.arcFlags[a] & 4) {
+      let pts = geom.edgeCoords(/** @type {number} */ (this.arcEdge[a]));
+      if (/** @type {number} */ (this.arcFlags[a]) & 4) {
+        /** @type {number[]} */
         const rev = [];
-        for (let i = pts.length - 2; i >= 0; i -= 2) rev.push(pts[i], pts[i + 1]);
+        for (let i = pts.length - 2; i >= 0; i -= 2)
+          rev.push(/** @type {number} */ (pts[i]), /** @type {number} */ (pts[i + 1]));
         pts = rev;
       }
       for (let i = 0; i < pts.length; i += 2) {
-        const ll = [pts[i + 1], pts[i]];
+        const ll = [/** @type {number} */ (pts[i + 1]), /** @type {number} */ (pts[i])];
         const last = out[out.length - 1];
         if (!last || last[0] !== ll[0] || last[1] !== ll[1]) out.push(ll);
       }
@@ -1229,6 +1703,10 @@ class Graph {
 
 /* ------------------------------------------------- edge geometry + indexes */
 class Geometry {
+  /**
+   * @param {Bundle} bundle
+   * @param {GraphMeta} meta
+   */
   constructor(bundle, meta) {
     this.s = bundle.text("geom");
     this.off = bundle.array("geom_off");
@@ -1251,9 +1729,13 @@ class Geometry {
       starts = new Int32Array(this.nEdges + 1);
     let n = 0;
     for (let i = 0; i < this.nEdges; i++) {
-      const pts = decodePolylineAt(this.s, this.off[i], this.off[i + 1]);
+      const pts = decodePolylineAt(
+        this.s,
+        /** @type {number} */ (this.off[i]),
+        /** @type {number} */ (this.off[i + 1]),
+      );
       starts[i] = n;
-      for (let k = 0; k < pts.length; k++) coords.push(pts[k]);
+      for (let k = 0; k < pts.length; k++) coords.push(/** @type {number} */ (pts[k]));
       n += pts.length;
     }
     starts[this.nEdges] = n;
@@ -1268,9 +1750,13 @@ class Geometry {
         y0 = Infinity,
         x1 = -Infinity,
         y1 = -Infinity;
-      for (let k = starts[i]; k < starts[i + 1]; k += 2) {
-        const x = this.coords[k],
-          y = this.coords[k + 1];
+      for (
+        let k = /** @type {number} */ (starts[i]);
+        k < /** @type {number} */ (starts[i + 1]);
+        k += 2
+      ) {
+        const x = /** @type {number} */ (this.coords[k]),
+          y = /** @type {number} */ (this.coords[k + 1]);
         if (x < x0) x0 = x;
         if (x > x1) x1 = x;
         if (y < y0) y0 = y;
@@ -1283,21 +1769,30 @@ class Geometry {
     }
   }
 
-  /* flat [lon,lat,...] for an edge id (ids are a contiguous 0..n-1 range) */
+  /** flat [lon,lat,...] for an edge id (ids are a contiguous 0..n-1 range)
+   * @param {number} i
+   * @returns {ArrayLike<number>}
+   */
   edgeCoords(i) {
     if (i < 0 || i >= this.nEdges) return [];
     return this.coords.subarray(this.starts[i], this.starts[i + 1]);
   }
 
+  /**
+   * @param {number} row
+   * @returns {EdgeInfo}
+   */
   edgeInfo(row) {
     return {
-      name: this.name[row] ? this.names[this.name[row] - 1] : null,
-      cls: this.classes[this.cls[row]],
-      bucket: this.bucket[row],
-      max_grade: this.maxgrade[row] / this.GRADE,
-      avg_grade: this.avggrade[row] / this.GRADE,
-      length_m: this.len[row] / this.DM,
-      gain_per_km: this.gainkm[row] / this.DM,
+      name: this.name[row]
+        ? /** @type {string} */ (this.names[/** @type {number} */ (this.name[row]) - 1])
+        : null,
+      cls: this.classes[/** @type {number} */ (this.cls[row])],
+      bucket: /** @type {number} */ (this.bucket[row]),
+      max_grade: /** @type {number} */ (this.maxgrade[row]) / this.GRADE,
+      avg_grade: /** @type {number} */ (this.avggrade[row]) / this.GRADE,
+      length_m: /** @type {number} */ (this.len[row]) / this.DM,
+      gain_per_km: /** @type {number} */ (this.gainkm[row]) / this.DM,
       low_stress: !!this.lowstress[row],
     };
   }
@@ -1305,6 +1800,11 @@ class Geometry {
 
 /* Uniform grid for nearest-node and nearest-edge queries. */
 class Grid {
+  /**
+   * @param {ArrayLike<number>} xs
+   * @param {ArrayLike<number>} ys
+   * @param {number} cell
+   */
   constructor(xs, ys, cell) {
     this.cell = cell;
     let x0 = Infinity,
@@ -1312,10 +1812,10 @@ class Grid {
       x1 = -Infinity,
       y1 = -Infinity;
     for (let i = 0; i < xs.length; i++) {
-      if (xs[i] < x0) x0 = xs[i];
-      if (xs[i] > x1) x1 = xs[i];
-      if (ys[i] < y0) y0 = ys[i];
-      if (ys[i] > y1) y1 = ys[i];
+      if (/** @type {number} */ (xs[i]) < x0) x0 = /** @type {number} */ (xs[i]);
+      if (/** @type {number} */ (xs[i]) > x1) x1 = /** @type {number} */ (xs[i]);
+      if (/** @type {number} */ (ys[i]) < y0) y0 = /** @type {number} */ (ys[i]);
+      if (/** @type {number} */ (ys[i]) > y1) y1 = /** @type {number} */ (ys[i]);
     }
     this.x0 = x0;
     this.y0 = y0;
@@ -1324,21 +1824,35 @@ class Grid {
     const counts = new Int32Array(this.nx * this.ny + 1);
     const cellOf = new Int32Array(xs.length);
     for (let i = 0; i < xs.length; i++) {
-      const cx = Math.min(this.nx - 1, Math.max(0, ((xs[i] - x0) / cell) | 0));
-      const cy = Math.min(this.ny - 1, Math.max(0, ((ys[i] - y0) / cell) | 0));
+      const cx = Math.min(
+        this.nx - 1,
+        Math.max(0, ((/** @type {number} */ (xs[i]) - x0) / cell) | 0),
+      );
+      const cy = Math.min(
+        this.ny - 1,
+        Math.max(0, ((/** @type {number} */ (ys[i]) - y0) / cell) | 0),
+      );
       const c = cy * this.nx + cx;
       cellOf[i] = c;
-      counts[c + 1]++;
+      /** @type {number} */ (counts[c + 1])++;
     }
-    for (let c = 0; c < counts.length - 1; c++) counts[c + 1] += counts[c];
+    for (let c = 0; c < counts.length - 1; c++)
+      /** @type {number} */ (counts[c + 1]) += /** @type {number} */ (counts[c]);
     this.start = counts;
     this.items = new Int32Array(xs.length);
     const fill = counts.slice();
-    for (let i = 0; i < xs.length; i++) this.items[fill[cellOf[i]]++] = i;
+    for (let i = 0; i < xs.length; i++)
+      this.items[/** @type {number} */ (fill[/** @type {number} */ (cellOf[i])])++] = i;
     this.xs = xs;
     this.ys = ys;
   }
 
+  /**
+   * @param {number} x
+   * @param {number} y
+   * @param {number} [rings]
+   * @returns {number[]} items in the cells up to `rings` around (x, y)
+   */
   near(x, y, rings = 2) {
     const cx = Math.min(this.nx - 1, Math.max(0, ((x - this.x0) / this.cell) | 0));
     const cy = Math.min(this.ny - 1, Math.max(0, ((y - this.y0) / this.cell) | 0));
@@ -1351,7 +1865,12 @@ class Grid {
             gy = cy + dy;
           if (gx < 0 || gy < 0 || gx >= this.nx || gy >= this.ny) continue;
           const c = gy * this.nx + gx;
-          for (let k = this.start[c]; k < this.start[c + 1]; k++) out.push(this.items[k]);
+          for (
+            let k = /** @type {number} */ (this.start[c]);
+            k < /** @type {number} */ (this.start[c + 1]);
+            k++
+          )
+            out.push(/** @type {number} */ (this.items[k]));
         }
       }
       if (out.length && r >= 1) break;
@@ -1359,13 +1878,21 @@ class Grid {
     return out;
   }
 
+  /**
+   * @param {number} x
+   * @param {number} y
+   * @param {(i: number) => boolean} [filter]
+   * @returns {number} the nearest item passing filter, or -1
+   */
   nearest(x, y, filter) {
     let best = -1,
       bestD = Infinity;
+    /** @param {number} i */
     const consider = (i) => {
       if (filter && !filter(i)) return;
-      const dx = this.xs[i] - x,
-        dy = this.ys[i] - y;
+      const dx = /** @type {number} */ (this.xs[i]) - x,
+        dy = /** @type {number} */ (this.ys[i]) - y;
+
       const d = dx * dx + dy * dy;
       if (d < bestD) {
         bestD = d;
