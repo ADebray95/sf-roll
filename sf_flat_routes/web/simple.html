@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Flatten SF</title>
-<meta name="description" content="flattensf: the flattest walking or cycling route between any two places in San Francisco, and every route between it and the shortest one.">
+<title>Roll SF</title>
+<meta name="description" content="Roll SF: wheelchair-friendly routes in San Francisco that never climb a street steeper than you choose.">
 <!--__HEAD_EXTRA__-->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -14,10 +14,10 @@
 </head>
 <body>
 <div id="map"></div>
-<div class="credit" id="credit">by <a href="https://almostimplemented.com" rel="author">Drew Edwards</a></div>
-<section id="card" aria-label="flattensf: plan a flat route">
+<div class="credit" id="credit">built on <a href="https://github.com/almostimplemented/flattensf">flattensf</a></div>
+<section id="card" aria-label="Roll SF: plan a route">
   <div class="head">
-    <h1>Flatten SF <small>flat routes across San Francisco</small></h1>
+    <h1>Roll SF <small>wheelchair routes across San Francisco</small></h1>
     <div class="seg units" id="units" role="group" aria-label="Units">
       <button type="button" data-u="mi" aria-pressed="true">mi</button>
       <button type="button" data-u="km" aria-pressed="false">km</button>
@@ -43,22 +43,14 @@
       <span class="pin to" aria-hidden="true"></span>
       <ul class="suggest" id="to_s" role="listbox" hidden></ul>
     </div>
-    <div class="seg" id="mode" role="group" aria-label="Travel mode">
-      <button data-v="walk" aria-pressed="true">Walk</button>
-      <button data-v="bike" aria-pressed="false">Bike</button>
-    </div>
   </div>
-  <label class="calm" id="calmrow" hidden>
-    <input type="checkbox" id="calm" checked>
-    <span>Prefer calm streets <small>bike lanes and quiet streets count shorter, busy arterials longer</small></span>
-  </label>
   <label class="calm" id="obrow" hidden>
     <input type="checkbox" id="outback">
     <span>Allow out and back <small>the same streets there and back, often the flattest way</small></span>
   </label>
   <div class="statusrow">
     <div class="status" id="status"></div>
-    <span class="links"><button class="link" id="share" type="button" hidden>Copy link</button><button class="link" id="gpx" type="button" hidden title="Download this route as a GPX file for Strava, Garmin and the rest">GPX</button></span>
+    <span class="links"><button class="link" id="share" type="button" hidden>Copy link</button></span>
   </div>
   <input id="sharebox" type="text" readonly hidden aria-label="Link to this route">
   <div class="slider">
@@ -75,30 +67,20 @@
   <div class="turns" id="turns" hidden></div>
   <details>
     <summary>How this works</summary>
-    <p class="fine">Routes are computed in your browser over 160,000 street
-    segments, with USGS 1&nbsp;m lidar elevation on the Overture /
-    OpenStreetMap street graph. The slider runs the whole trade-off between
-    distance and climbing: every route nothing else beats on both, from
-    the shortest to the flattest worth walking. Sliding right never
-    shortens the route and never adds climbing. Climbing is total gain,
-    not the difference between the endpoints. Stairs count on foot, not
-    on a bike.</p>
+    <p class="fine">Routes are computed in your browser over the whole San
+    Francisco street graph, with USGS 1&nbsp;m lidar elevation on the
+    Overture / OpenStreetMap streets. Stairs, unpaved paths, freeways and
+    private roads are left out. The slider runs the trade-off between
+    distance and climbing: every route nothing else beats on both, from the
+    shortest to the flattest. Climbing is total gain, not the difference
+    between the endpoints.</p>
     <p class="fine">The loop button turns the trip into a loop from one
-    start: the slider sets the distance, dozens of loops of about that
-    length are tried in every direction and the flattest is shown; tick
-    <i>allow out and back</i> to include the same streets there and back,
-    which is often flatter still. On a
-    bike, <i>prefer calm streets</i> counts protected lanes and paths
-    (SFMTA bikeway network) as shorter than they are and busy arterials as
-    longer.</p>
-    <p class="fine"><i>mi / km</i> at the top switches between miles and
-    kilometres. <i>GPX</i> downloads the route on show with its
-    elevation, for Strava, Garmin Connect, Komoot and the like. Place
-    search is offline: the city's intersections, places and addresses are
-    built into this page.
-    <a href="/*__REPO_URL__*/">Source, data and the full analysis</a>.</p>
+    start: the slider sets the distance and the flattest loop of about that
+    length is shown; tick <i>allow out and back</i> to include the same
+    streets there and back. Place search is offline.
+    <a href="/*__REPO_URL__*/">Source and data</a>.</p>
   </details>
-  <p class="credit-inline">by <a href="https://almostimplemented.com" rel="author">Drew Edwards</a></p>
+  <p class="credit-inline">built on <a href="https://github.com/almostimplemented/flattensf">flattensf</a> by Drew Edwards</p>
 </section>
 <script>/*__LEAFLET_JS__*/</script>
 <script>window.DATA = /*__DATA__*/;</script>

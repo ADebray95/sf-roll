@@ -1,38 +1,28 @@
 """Pack the routable graph into a compact binary payload for the browser.
 
-The interactive map used to ship ~10,000 precomputed routes, which meant it
-could only answer questions about the 36 neighborhood access points.  It is
-cheaper *and* far more useful to ship the graph itself: 168,000 directed arcs
-and 70,000 nodes pack into a few megabytes, and a Dijkstra over that runs in
-well under a second in JavaScript.  The map can then route between any two
-points the viewer clicks, under any cost weights, with the cost model
-evaluated in the browser exactly as Python evaluates it.
+The app ships the street graph itself, not precomputed answers: about
+160,000 directed arcs and 70,000 nodes pack into a few megabytes, and every
+search (shortest, Pareto frontier, loops, the uphill cap) runs in the browser.
 
 Packing
 -------
 Everything is a typed array.  All of them, plus the encoded geometry and the
-vector overlays, are concatenated into a single buffer, gzipped, and
-base64-encoded once; the browser inflates it with ``DecompressionStream`` and
-takes ``TypedArray`` views straight onto the result.  That avoids parsing
-megabytes of JSON numbers, and because the arrays are mostly small integers
-with long runs of zeros, compression takes the payload down by roughly a
-factor of three.  Quantisation is chosen so it is invisible at the scale the
-metrics are reported:
+place index, are concatenated into a single buffer and gzipped; the browser
+inflates it with ``DecompressionStream`` and takes ``TypedArray`` views
+straight onto the result.  Quantisation is chosen so it is invisible at the
+scale the metrics are reported:
 
 * coordinates: ``int32`` micro-degrees (~0.1 m)
-* lengths and steep distances: ``uint16`` in 5 cm units
+* lengths: ``uint16`` in 5 cm units
 * climbing: ``uint16`` centimetres
-* gradients: ``int16`` hundredths of a percent
+* ``max_up_grade_15m``: ``uint16`` hundredths of a percent
 
 Geometry is one concatenated Google-encoded polyline string with per-edge
-character offsets, which is already ASCII and so costs nothing to embed.
+character offsets.
 
-Parity with Python
-------------------
-Per-mode arc availability is computed here exactly as
-``routing.build_route_graph`` computes it, *including* the restriction to the
-largest strongly connected component, so a route found in the browser is the
-same route Python finds. ``tests/test_webgraph.py`` asserts that on real data.
+Only arcs in the largest strongly connected component of the wheelchair
+network are packed, so any two snapped points are mutually reachable unless
+the uphill cap cuts them apart.
 """
 
 from __future__ import annotations
@@ -43,22 +33,16 @@ import gzip
 import numpy as np
 import pandas as pd
 
-from sf_flat_routes.bikeways import BIKEWAYS_GEOJSON, conflate
-from sf_flat_routes.bikeways import stress as bike_stress
-from sf_flat_routes.config import GRADE_THRESHOLDS, MODES, ROUTING_PROFILES
 from sf_flat_routes.utils import get_logger, step
 
 log = get_logger("sf_flat_routes.webgraph")
-
-_TH = [int(t * 100) for t in GRADE_THRESHOLDS]
 
 #: Quantisation scales. Chosen so that round-trip error is far below the
 #: precision at which any metric is reported.
 DM = 20.0  # 5 cm units per metre (max edge 1212 m fits uint16)
 CM = 100.0  # centimetres per metre
-GRADE_Q = 10000.0  # int16 units per unit gradient (0.01% resolution)
+GRADE_Q = 10000.0  # units per unit gradient (0.01% resolution; uint16 holds 655%)
 COORD_Q = 1e6  # micro-degrees
-STRESS_Q = 100.0  # hundredths of a comfort multiplier
 
 
 def _b64(arr: np.ndarray) -> str:
@@ -100,35 +84,26 @@ def encode_polyline(coords, precision: int = 5) -> str:
 
 
 # --------------------------------------------------------------------------
-def _mode_availability(
-    directed: pd.DataFrame, mode: str, node_index: dict
-) -> tuple[np.ndarray, np.ndarray]:
-    """Per-arc availability for a mode, matching ``build_route_graph``.
-
-    Includes the restriction to the largest strongly connected component, so
-    that anything the browser can route, Python can route identically.
-    """
+def _availability(directed: pd.DataFrame, node_index: dict) -> tuple[np.ndarray, np.ndarray]:
+    """Per-arc availability: traversable and inside the largest strongly
+    connected component, so every routable node can reach every other."""
     import scipy.sparse as sp
 
-    ok = directed[f"{mode}_traversable"].to_numpy()
+    ok = directed["traversable"].to_numpy()
     fi = directed["from_node"].map(node_index).to_numpy()
     ti = directed["to_node"].map(node_index).to_numpy()
     n = len(node_index)
     sub_f, sub_t = fi[ok], ti[ok]
     adj = sp.coo_matrix((np.ones(sub_f.size), (sub_f, sub_t)), shape=(n, n)).tocsr()
     ncomp, labels = sp.csgraph.connected_components(adj, directed=True, connection="strong")
-    # the component containing the most *reachable* nodes, counting only
-    # nodes that the mode actually touches
     touched = np.zeros(n, dtype=bool)
     touched[sub_f] = True
     touched[sub_t] = True
     counts = np.bincount(labels[touched], minlength=ncomp)
-    biggest = int(counts.argmax())
-    in_scc = (labels == biggest) & touched
+    in_scc = (labels == int(counts.argmax())) & touched
     avail = ok & in_scc[fi] & in_scc[ti]
     log.info(
-        "  %s: %d of %d arcs available (largest SCC has %d nodes)",
-        mode,
+        "  %d of %d traversable arcs available (largest SCC has %d nodes)",
         int(avail.sum()),
         int(ok.sum()),
         int(in_scc.sum()),
@@ -136,29 +111,45 @@ def _mode_availability(
     return avail, in_scc
 
 
+def _node_coords(edges, nodes, node_index: dict) -> tuple[np.ndarray, np.ndarray]:
+    ll = edges.to_crs("EPSG:4326")
+    lon = np.zeros(len(nodes))
+    lat = np.zeros(len(nodes))
+    seen = np.zeros(len(nodes), dtype=bool)
+    for u, v, geom in zip(edges["u"], edges["v"], ll.geometry, strict=True):
+        c = geom.coords
+        for node, (x, y) in ((u, c[0]), (v, c[-1])):
+            i = node_index.get(node)
+            if i is not None and not seen[i]:
+                lon[i] = x
+                lat[i] = y
+                seen[i] = True
+    return lon, lat
+
+
+def _geometry(edges) -> tuple[str, np.ndarray, int]:
+    """One polyline string for every edge, with per-edge character offsets."""
+    ll = edges.to_crs("EPSG:4326")
+    parts: list[str] = []
+    offs = np.zeros(len(edges) + 1, dtype="<i4")
+    pos = 0
+    for i, geom in enumerate(ll.geometry):
+        s = encode_polyline(list(geom.coords))
+        parts.append(s)
+        pos += len(s)
+        offs[i + 1] = pos
+    return "".join(parts), offs, sum(len(g.coords) for g in ll.geometry)
+
+
 def build_payload(edges, directed: pd.DataFrame) -> dict:
     """Pack nodes, arcs, geometry and display attributes for the browser."""
     with step("packing the routable graph for the browser", log):
-        # ---- nodes -------------------------------------------------
         nodes = pd.unique(
             pd.concat([directed["from_node"], directed["to_node"]], ignore_index=True)
         )
         node_index = {n: i for i, n in enumerate(nodes)}
+        lon, lat = _node_coords(edges, nodes, node_index)
 
-        ll = edges.to_crs("EPSG:4326")
-        lon = np.zeros(len(nodes))
-        lat = np.zeros(len(nodes))
-        seen = np.zeros(len(nodes), dtype=bool)
-        for u, v, geom in zip(edges["u"], edges["v"], ll.geometry, strict=False):
-            c = geom.coords
-            for node, (x, y) in ((u, c[0]), (v, c[-1])):
-                i = node_index.get(node)
-                if i is not None and not seen[i]:
-                    lon[i] = x
-                    lat[i] = y
-                    seen[i] = True
-
-        # ---- node elevations, for route elevation profiles ---------
         # Elevations are reconciled to one value per intersection upstream,
         # so a profile sampled at arc boundaries is exact at every corner.
         za = directed[["from_node", "start_elev"]].rename(
@@ -168,20 +159,12 @@ def build_payload(edges, directed: pd.DataFrame) -> dict:
         zz = pd.concat([za, zb], ignore_index=True).groupby("node")["z"].median()
         node_z = zz.reindex(nodes).fillna(0.0).to_numpy()
 
-        # ---- per-mode availability ---------------------------------
-        flags = np.zeros(len(directed), dtype="<u1")
-        node_flags = np.zeros(len(nodes), dtype="<u1")
-        for bit, mode in enumerate(("walk", "bike")):
-            avail, in_scc = _mode_availability(directed, mode, node_index)
-            flags |= avail.astype("<u1") << bit
-            node_flags |= in_scc.astype("<u1") << bit
-        keep = flags > 0
-        d = directed[keep].reset_index(drop=True)
-        flags = flags[keep]
-        # bit 2 marks a reverse traversal, so the geometry is drawn backwards
+        avail, in_scc = _availability(directed, node_index)
+        d = directed[avail].reset_index(drop=True)
+        # bit 0: routable; bit 2: a reverse traversal, so geometry is drawn backwards
+        flags = np.ones(len(d), dtype="<u1")
         flags |= (d["direction"].to_numpy() == "rev").astype("<u1") << 2
 
-        # ---- arcs, sorted into CSR order ---------------------------
         fi = d["from_node"].map(node_index).to_numpy()
         ti = d["to_node"].map(node_index).to_numpy()
         order = np.argsort(fi, kind="stable")
@@ -190,121 +173,44 @@ def build_payload(edges, directed: pd.DataFrame) -> dict:
         np.add.at(indptr, fi + 1, 1)
         indptr = np.cumsum(indptr).astype("<i4")
 
-        classes = sorted(set(edges["cls"].dropna().unique()) | set(d["cls"].dropna().unique()))
+        classes = sorted(set(edges["cls"].dropna().unique()))
         cls_idx = {c: i for i, c in enumerate(classes)}
-
-        # Loss, maximum gradient and mean absolute gradient are carried
-        # per arc rather than re-derived in the browser, so that the map
-        # reports exactly the same figures as the analysis outputs. Deriving
-        # them from the node elevation series would be close but not equal,
-        # and a map that disagrees with its own CSV is worse than a slightly
-        # larger file.
-        arcs = {
-            "head": ti.astype("<i4"),
-            "edge": d["edge_id"].to_numpy().astype("<i4"),
-            "len": _u16(d["length_m"], DM),
-            "gain": _u16(d["cum_gain"], CM),
-            "loss": _u16(d["cum_loss"], CM),
-            "maxgrade": _i16(d["max_grade"], GRADE_Q),
-            "meangrade": _u16(d["mean_abs_grade"], GRADE_Q),
-            "cls": d["cls"].map(cls_idx).fillna(0).to_numpy().astype("<u1"),
-            "flags": flags,
-        }
-        for t in _TH:
-            arcs[f"th{t}"] = _u16(d[f"d_above_{t}"], DM)
-
-        # ---- geometry: one polyline string with character offsets ---
-        geom_parts: list[str] = []
-        offs = np.zeros(len(edges) + 1, dtype="<i4")
-        pos = 0
-        for i, geom in enumerate(ll.geometry):
-            s = encode_polyline(list(geom.coords))
-            geom_parts.append(s)
-            pos += len(s)
-            offs[i + 1] = pos
-        geom = "".join(geom_parts)
-
-        # ---- per-edge display attributes ---------------------------
-        if BIKEWAYS_GEOJSON.exists():
-            facility = conflate(edges)
-        else:
-            log.warning("%s not found: bike stress falls back to road class only", BIKEWAYS_GEOJSON)
-            facility = None
         names = edges["name"].fillna("")
         name_values = sorted(set(names) - {""})
         name_idx = {n: i + 1 for i, n in enumerate(name_values)}
-        buckets = np.digitize(
-            edges["max_abs_grade"].fillna(0.0).to_numpy(), [0.03, 0.05, 0.08, 0.10, 0.15]
-        ).astype("<u1")
         # edge ids are a contiguous 0..n-1 range by construction, so storing
         # them (and a reverse lookup in the browser) would be pure overhead
-        assert np.array_equal(edges["edge_id"].to_numpy(), np.arange(len(edges))), (
-            "edge ids are expected to be a contiguous range"
-        )
-        edge_attrs = {
-            "name": names.map(lambda n: name_idx.get(n, 0)).to_numpy().astype("<u2"),
-            "cls": edges["cls"].map(cls_idx).fillna(0).to_numpy().astype("<u1"),
-            "bucket": buckets,
-            "maxgrade": _u16(edges["max_abs_grade"].fillna(0.0), GRADE_Q),
-            "avggrade": _i16(edges["avg_grade_fwd"].fillna(0.0), GRADE_Q),
-            "len": _u16(edges["length_m"], DM),
-            "gainkm": _u16(
-                (edges["cum_gain_fwd"] / (edges["length_m"] / 1000.0).clip(lower=1e-6)).clip(
-                    0, 6000
-                ),
-                DM,
-            ),
-            "lowstress": edges["low_stress"].fillna(False).to_numpy().astype("<u1"),
-            # bike comfort multiplier, hundredths (100 = an ordinary block),
-            # from the SFMTA bikeway network where it is on disk
-            "stress": np.clip(np.round(bike_stress(edges, facility) * STRESS_Q), 1, 255).astype(
-                "<u1"
-            ),
-        }
+        if not np.array_equal(edges["edge_id"].to_numpy(), np.arange(len(edges))):
+            raise ValueError("edge ids must be the contiguous range 0..n-1")
+        geom, offs, n_coords = _geometry(edges)
 
         arrays: dict[str, np.ndarray] = {
             "node_lon": np.round(lon * COORD_Q).astype("<i4"),
             "node_lat": np.round(lat * COORD_Q).astype("<i4"),
-            "node_flags": node_flags,
+            "node_flags": in_scc.astype("<u1"),
             "node_elev": _i16(node_z, DM),
             "indptr": indptr,
             "geom_off": offs,
+            "arc_head": ti.astype("<i4"),
+            "arc_edge": d["edge_id"].to_numpy().astype("<i4"),
+            "arc_len": _u16(d["length_m"], DM),
+            "arc_gain": _u16(d["cum_gain"], CM),
+            "arc_loss": _u16(d["cum_loss"], CM),
+            "arc_maxup": _u16(d["max_up_grade_15m"], GRADE_Q),
+            "arc_flags": flags,
+            "edge_name": names.map(lambda n: name_idx.get(n, 0)).to_numpy().astype("<u2"),
+            "edge_cls": edges["cls"].map(cls_idx).fillna(0).to_numpy().astype("<u1"),
+            "edge_len": _u16(edges["length_m"], DM),
         }
-        for k, v in arcs.items():
-            arrays["arc_" + k] = v
-        for k, v in edge_attrs.items():
-            arrays["edge_" + k] = v
-
         meta = {
             "n_nodes": int(len(nodes)),
             "n_arcs": int(len(ti)),
             "n_edges": int(len(edges)),
             "classes": classes,
             "names": name_values,
-            "thresholds": _TH,
-            "scales": {"dm": DM, "cm": CM, "grade": GRADE_Q, "coord": COORD_Q, "stress": STRESS_Q},
-            "bikeways": facility is not None,
-            "profiles": {
-                name: {
-                    "alpha": w.alpha,
-                    "beta": w.beta,
-                    "gamma": w.gamma,
-                    "penalties": list(w.threshold_penalties),
-                    "extreme": w.extreme_extra,
-                    "use_class_multiplier": bool(w.use_class_multiplier),
-                }
-                for name, w in ROUTING_PROFILES.items()
-            },
-            "multipliers": {
-                mode: [MODES[mode].class_multiplier.get(c, 1.0) for c in classes] for mode in MODES
-            },
+            "scales": {"dm": DM, "cm": CM, "grade": GRADE_Q, "coord": COORD_Q},
         }
-        return {
-            "arrays": arrays,
-            "geom": geom,
-            "meta": meta,
-            "n_coords": sum(len(g.coords) for g in ll.geometry),
-        }
+        return {"arrays": arrays, "geom": geom, "meta": meta, "n_coords": n_coords}
 
 
 _DTYPE_TAG = {

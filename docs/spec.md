@@ -1,6 +1,6 @@
 # Roll SF: specification
 
-Version 1.0, 2026-10-17. Owner: Arnaud Debray ([ADebray95](https://github.com/ADebray95)).
+Version 1.1, 2026-10-18 (1.0 of 2026-10-17, amended during the build; see §13). Owner: Arnaud Debray ([ADebray95](https://github.com/ADebray95)).
 
 This spec is written for a coding agent working on its own. Read it fully before starting, follow the
 milestones in order, and treat the acceptance criteria (§10) as the definition of done. When the
@@ -54,7 +54,7 @@ personal use; the repo and site are public.
 | D10 | Repo | GitHub fork of `almostimplemented/flattensf` into `ADebray95`, renamed `sf-roll`. App name "Roll SF". |
 | D11 | Hosting | GitHub Pages, deployed by GitHub Actions. |
 | D12 | Routable ways | See §5.1. Freeways always excluded; trunk excluded only where marked no-sidewalk/no-foot. Stairs, private and unpaved ways excluded. |
-| D13 | Grade measure | A directed arc's grade = steepest uphill over any 15 m window of its smoothed profile; arcs < 15 m use their average grade. |
+| D13 | Grade measure | A directed arc's grade = steepest uphill over any 15 m window of its smoothed profile; arcs < 15 m take the 15 m window centred on them along the same street (§13). |
 | D14 | Trade-off slider | flattensf's Pareto frontier (bi-objective search on distance and climb), computed on arcs within the cap, thinned to ≤ 10 visibly different routes. No weighted-sum fallback. |
 | D15 | Excluded streets | Arcs over the cap shown faintly grey on the map, updated live. |
 | D16 | Inputs | Start and destination each by address search, map tap, or GPS. Start defaults to GPS. Favourites stored in `localStorage`. |
@@ -168,8 +168,9 @@ remain routable; I-80, I-280, US-101 Central Freeway and their ramps are not.
 
 For every directed arc, compute `max_up_grade_15m`: the largest value of
 `(z(s + 15 m) − z(s)) / 15 m` over the arc's **smoothed** elevation profile, in its direction of
-travel, sampled at the existing 5 m spacing (windows slide by one sample). Arcs shorter than 15 m use
-`max(0, (z_end − z_start) / length)`. Steepness only counts when climbing, so values are ≥ 0.
+travel, sampled at the existing 5 m spacing (windows slide by one sample). Arcs shorter than 15 m take
+the 15 m window centred on them along the same street (§13). Steepness only counts when climbing,
+so values are ≥ 0.
 
 - Compute it per street segment's continuous profile, then cut per arc, so windows near arc ends
   can use neighbouring samples on the same street (do not reset at intersections inside a
@@ -183,7 +184,7 @@ Keep the existing per-arc `gain` (climb) and `length`.
 
 ### 5.3 Graph build and publish
 
-- `python -m sf_flat_routes build-network` then the site build regenerates `site/data/graph-*.bin.gz`.
+- `python -m sf_flat_routes build-network` then `python -m sf_flat_routes site` regenerates `site/data/graph-*.bin.gz`.
   Document the full rebuild in `docs/data.md`: required disk (~750 MB cache), runtime, commands.
 - The built `site/` stays committed (CI cannot build data).
 - Write `site/data/manifest.json` with the Overture release, lidar project, build date, git SHA and
@@ -339,7 +340,7 @@ miss must be investigated and written up, not "fixed" by tuning toward the numbe
 
 Also, for all arcs:
 
-- `max_up_grade_15m(arc) ≥ average uphill grade(arc)`, and it is 0 when the arc only descends.
+- `max_up_grade_15m(arc) ≥ average uphill grade(arc)` for arcs of 15 m or more, and it is 0 when the arc only descends.
 - `gain − loss = z_end − z_start` per arc (existing invariant, keep).
 - No routable arc has class `motorway`, `motorway_link`, or `steps`. Van Ness Ave, Lombard St
   (US-101) and 19th Ave have routable arcs.
@@ -452,3 +453,20 @@ One PR per milestone. Don't merge without Arnaud's go-ahead.
    provider if not.
 6. **Data licence**: the derived graph is ODbL (Overture/OSM). Keep attribution visible; the
    published graph file is a derived database and must carry the ODbL notice.
+
+---
+
+## 13. Amendments during the build
+
+1. **Short arcs (D13, §5.2).** Arcs shorter than 15 m do not use their own average grade: half of
+   all routable arcs are that short, and over a 1–3 m stub the lidar's decimetre noise reads as a
+   10–60% grade (3,082 such arcs, 16th Street and Grant Avenue among them, would have been closed
+   at an 8% cap). They take the 15 m window centred on them along the same street; a street
+   segment shorter than 15 m spreads its rise over 15 m. The "≥ average uphill grade" invariant
+   applies to arcs of 15 m or more. Details in `docs/validation.md`.
+2. **flattensf's analysis removed.** The neighbourhood-pair study, corridors, passes, the explorer
+   page, the static maps and `outputs/` are deleted; the site build no longer depends on them. The
+   CLI is `sources`, `download`, `build-network`, `site`, `validate`, `all`.
+3. **Trunk roads (§5.1, §12.1).** Overture has no sidewalk tag, but trunk segments without a footway
+   carry `foot: denied`, which access evaluation already honours; no OSM join or blocklist was
+   needed. Ramps (`is_link`) off trunk roads are excluded.

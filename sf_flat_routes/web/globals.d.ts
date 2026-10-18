@@ -13,7 +13,7 @@ interface Window {
 // Caches Graph builds on first use; declared here so the class need not
 // create them up front.
 interface Graph {
-  _corners?: Partial<Record<Mode, Uint8Array>>;
+  _corners?: Uint8Array;
   _rev?: ReverseAdjacency;
   _arcLookup?: Map<number, number>;
 }

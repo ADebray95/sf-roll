@@ -141,3 +141,10 @@ def test_bundle_actually_compresses():
     arrays = {"z": np.zeros(200_000, dtype="<u2")}
     out = bundle({"arrays": arrays, "meta": {}}, {})
     assert len(base64.b64decode(out["b64"])) < 0.05 * 400_000
+
+
+def test_uphill_grade_round_trips_to_a_hundredth_of_a_percent():
+    g = np.array([0.0, 0.0004, 0.08, 0.31579, 0.60])
+    q = _u16(g, GRADE_Q)
+    assert q.dtype == np.dtype("<u2")
+    assert np.abs(q / GRADE_Q - g).max() <= 0.5 / GRADE_Q

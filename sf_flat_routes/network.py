@@ -6,14 +6,16 @@ its own geometry.  Splitting each segment at those positions and keying nodes
 by connector ID yields exact topology with no geometric snapping tolerance,
 and grade-separated crossings correctly stay unconnected.
 
-Access is derived from Overture ``access_restrictions``.  The rule shapes
-actually present in San Francisco are:
+Access is derived from Overture ``access_restrictions``, read for travel on
+foot (a wheelchair user goes where pedestrians go).  The rule shapes actually
+present in San Francisco are:
 
 * ``denied`` + ``heading=backward`` (7,034 segments) -- one-way streets.
-  Enforced for bicycles, ignored for pedestrians, since OSM ``oneway``
-  describes vehicle movement.
+  Ignored: OSM ``oneway`` describes vehicle movement.
 * ``denied``/``allowed``/``designated`` + ``mode=[foot|bicycle|...]`` --
-  explicit per-mode permissions.
+  explicit per-mode permissions.  Trunk roads without a footway (Park
+  Presidio Boulevard, Crossover Drive, parts of Junipero Serra Boulevard)
+  carry ``foot: denied`` and drop out here.
 * ``recognized=[as_private]`` or ``using=[as_customer|at_destination]`` --
   private or destination-only access; excluded from through routing.
 
@@ -34,13 +36,10 @@ import numpy as np
 import pandas as pd
 
 from sf_flat_routes.config import (
-    BIKE_FORBIDDEN_CLASSES,
     CRS_GEOGRAPHIC,
     CRS_PROJECTED,
-    MODES,
-    NEVER_ROUTABLE_CLASSES,
-    NEVER_ROUTABLE_SUBCLASSES,
     PROCESSED_DIR,
+    WHEELCHAIR,
 )
 from sf_flat_routes.utils import get_logger, progress, step
 
@@ -53,11 +52,8 @@ _PERMIT = {"allowed", "designated"}
 #: conditional qualifiers that mean "not available for through travel".
 _PRIVATE_RECOGNIZED = {"as_private", "as_employee", "as_student", "as_permitted"}
 _DESTINATION_USING = {"at_destination", "as_customer", "as_delivery"}
-#: mode tokens that subsume the pedestrian / bicycle modes.
-_MODE_PARENTS = {
-    "foot": {"foot", "pedestrian"},
-    "bicycle": {"bicycle"},
-}
+#: mode tokens that subsume each mode we read rules for.
+_MODE_PARENTS = {"foot": {"foot", "pedestrian"}}
 
 
 def _as_list(value) -> list:
@@ -104,8 +100,9 @@ def evaluate_access(restrictions, mode: str, default: bool = True) -> dict:
     """Resolve Overture access rules for one travel mode.
 
     Returns a dict with ``allowed`` (through travel permitted at all),
-    ``oneway_forward_only`` (backward travel prohibited) and ``restricted``
-    (access is conditional/private).
+    ``restricted`` (access is conditional/private) and ``partial_rules``
+    (a rule covers only part of the segment). Directional (one-way) rules are
+    ignored: they describe vehicle movement.
 
     Rules that apply to every mode are resolved first and rules that name
     ``mode`` after them, each group in document order, so a mode-specific
@@ -115,7 +112,6 @@ def evaluate_access(restrictions, mode: str, default: bool = True) -> dict:
     from the network.
     """
     allowed = default
-    oneway_forward_only = False
     restricted = False
     partial = False
 
@@ -128,17 +124,10 @@ def evaluate_access(restrictions, mode: str, default: bool = True) -> dict:
         if when.get("during"):
             # time-conditional (e.g. peak-hour bans); ignored, noted only
             continue
+        if when.get("heading"):
+            continue
         is_partial = len(_as_list(rule.get("between"))) > 0
         atype = rule.get("access_type")
-        heading = when.get("heading")
-
-        if heading:
-            # directional restriction == one-way
-            if atype == "denied" and heading == "backward":
-                oneway_forward_only = True
-            elif atype in _PERMIT and heading == "backward":
-                oneway_forward_only = False  # e.g. contraflow bike lane
-            continue
 
         recognized = set(_as_list(when.get("recognized")))
         using = set(_as_list(when.get("using")))
@@ -159,12 +148,7 @@ def evaluate_access(restrictions, mode: str, default: bool = True) -> dict:
             # private/destination restriction read earlier
             restricted = False
 
-    return {
-        "allowed": allowed,
-        "oneway_forward_only": oneway_forward_only,
-        "restricted": restricted,
-        "partial_rules": partial,
-    }
+    return {"allowed": allowed, "restricted": restricted, "partial_rules": partial}
 
 
 def _flags(road_flags) -> set[str]:
@@ -187,26 +171,42 @@ def load_segments(path: Path) -> pd.DataFrame:
     return table.to_pandas()
 
 
+def unpaved_spans(road_surface) -> list[tuple[float, float]]:
+    """Fractions of a segment (``at`` 0..1) whose surface is unpaved.
+
+    Overture gives ``road_surface`` as rules of ``{value, between}``; a rule
+    without ``between`` covers the whole segment.
+    """
+    spans = []
+    for rule in _as_list(road_surface):
+        r = _as_dict(rule)
+        if r.get("value") not in WHEELCHAIR.excluded_surfaces:
+            continue
+        between = _as_list(r.get("between"))
+        spans.append((float(between[0]), float(between[1])) if len(between) == 2 else (0.0, 1.0))
+    return spans
+
+
 def _base_filter(df: pd.DataFrame) -> pd.DataFrame:
-    """Drop everything that is never part of a walk/bike street network."""
+    """Drop everything that is never part of the wheelchair street network."""
     n0 = len(df)
     df = df[df["subtype"] == "road"].copy()
     log.info("  subtype=road: %d -> %d", n0, len(df))
 
     df["cls"] = df["class"].fillna("unknown")
-    df = df[~df["cls"].isin(NEVER_ROUTABLE_CLASSES)]
-    df = df[~df["subclass"].fillna("").isin(NEVER_ROUTABLE_SUBCLASSES)]
+    df = df[df["cls"].isin(WHEELCHAIR.allowed_classes)]
+    df = df[~df["subclass"].fillna("").isin(WHEELCHAIR.excluded_subclasses)]
     log.info("  after class/subclass filter: %d", len(df))
 
     df["flags"] = df["road_flags"].apply(_flags)
     bad = df["flags"].apply(
         lambda f: bool(f & {"is_abandoned", "is_under_construction", "is_proposed"})
     )
-    df = df[~bad]
-    # Freeway ramps are tagged is_link on a motorway-ish class; the class
-    # filter already removed motorway_link, but some links hang off trunk
-    # roads and are genuinely walkable, so is_link alone is not disqualifying.
-    log.info("  after condition filter: %d", len(df))
+    # ramps off a trunk road are freeway-style links with no footway
+    ramp = (df["cls"] == "trunk") & df["flags"].apply(lambda f: "is_link" in f)
+    df = df[~bad & ~ramp]
+    log.info("  after condition and trunk-ramp filter: %d", len(df))
+    df["unpaved"] = df["road_surface"].apply(unpaved_spans)
     return df
 
 
@@ -261,6 +261,7 @@ def _split_geometries(df: pd.DataFrame):
                     "name": _as_dict(row["names"]).get("primary"),
                     "flags": row["flags"],
                     "access_restrictions": row["access_restrictions"],
+                    "unpaved": any(lo <= (a_at + b_at) / 2 <= hi for lo, hi in row["unpaved"]),
                     "geometry": piece,
                 }
             )
@@ -277,7 +278,7 @@ def build_edges(
     headlands (reachable only across the Golden Gate Bridge and partly
     outside the lidar footprint) and northern San Mateo County.  Clipping to
     the union of the San Francisco neighborhood polygons keeps the analysis
-    to the city, which is what the corridor and pass analysis is about.
+    to the city.
     """
     import geopandas as gpd
 
@@ -313,42 +314,18 @@ def build_edges(
     gdf["is_tunnel"] = gdf["flags"].apply(lambda f: "is_tunnel" in f)
     gdf["is_structure"] = gdf["is_bridge"] | gdf["is_tunnel"]
 
-    # per-mode access
-    with step("evaluating per-mode access restrictions", log):
-        for mode_name, mode in MODES.items():
-            res = [evaluate_access(r, mode.access_modes[0]) for r in gdf["access_restrictions"]]
-            gdf[f"{mode_name}_allowed"] = [r["allowed"] for r in res]
-            gdf[f"{mode_name}_oneway"] = [r["oneway_forward_only"] for r in res]
-            gdf[f"{mode_name}_restricted"] = [r["restricted"] for r in res]
-            # class eligibility
-            ok = gdf["cls"].isin(mode.allowed_classes)
-            if mode_name == "bike":
-                ok &= ~gdf["cls"].isin(BIKE_FORBIDDEN_CLASSES)
-            gdf[f"{mode_name}_ok"] = ok & gdf[f"{mode_name}_allowed"]
-            log.info(
-                "  %s: %d of %d edges routable",
-                mode_name,
-                int(gdf[f"{mode_name}_ok"].sum()),
-                len(gdf),
-            )
-
-    # bicycle infrastructure / low-stress proxy (SFMTA data unavailable)
-    gdf["bike_facility"] = np.where(
-        gdf["cls"] == "cycleway",
-        "dedicated_cycleway",
-        np.where(
-            gdf["cls"].isin(["path", "footway"]) & gdf["bike_allowed"],
-            "shared_path",
-            np.where(
-                gdf["cls"] == "living_street",
-                "living_street",
-                np.where(gdf["cls"] == "pedestrian", "car_free_street", ""),
-            ),
-        ),
-    )
-    gdf["low_stress"] = gdf["bike_facility"].astype(bool) | gdf["cls"].isin(
-        ["residential", "living_street", "pedestrian"]
-    )
+    with step("evaluating wheelchair access", log):
+        res = [evaluate_access(r, WHEELCHAIR.access_mode) for r in gdf["access_restrictions"]]
+        gdf["access_ok"] = [r["allowed"] for r in res]
+        gdf["restricted"] = [r["restricted"] for r in res]
+        gdf["ok"] = gdf["access_ok"] & ~gdf["unpaved"]
+        log.info(
+            "  %d of %d edges routable (%d closed to pedestrians, %d unpaved)",
+            int(gdf["ok"].sum()),
+            len(gdf),
+            int((~gdf["access_ok"]).sum()),
+            int(gdf["unpaved"].sum()),
+        )
 
     gdf["edge_id"] = np.arange(len(gdf), dtype=np.int64)
     keep = [
@@ -364,41 +341,12 @@ def build_edges(
         "is_bridge",
         "is_tunnel",
         "is_structure",
-        "walk_ok",
-        "walk_oneway",
-        "walk_restricted",
-        "bike_ok",
-        "bike_oneway",
-        "bike_restricted",
-        "bike_facility",
-        "low_stress",
+        "ok",
+        "restricted",
+        "unpaved",
         "geometry",
     ]
     gdf = gdf[keep]
     gdf.to_parquet(EDGES_PARQUET)
     log.info("wrote %s (%d edges)", EDGES_PARQUET.name, len(gdf))
     return gdf
-
-
-# --------------------------------------------------------------------------
-# graph assembly
-# --------------------------------------------------------------------------
-def largest_component(edges, mode: str):
-    """Restrict an edge table to the largest connected component for a mode."""
-    import networkx as nx
-
-    sub = edges[edges[f"{mode}_ok"]]
-    g = nx.Graph()
-    g.add_edges_from(zip(sub["u"], sub["v"], strict=False))
-    if g.number_of_nodes() == 0:
-        raise RuntimeError(f"no routable edges for mode {mode}")
-    comp = max(nx.connected_components(g), key=len)
-    keep = sub["u"].isin(comp) & sub["v"].isin(comp)
-    log.info(
-        "mode %s: largest component has %d nodes, %d of %d edges",
-        mode,
-        len(comp),
-        int(keep.sum()),
-        len(sub),
-    )
-    return sub[keep].copy(), comp

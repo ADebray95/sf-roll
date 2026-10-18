@@ -42,7 +42,12 @@ Definitions
 
 ``d_abs_above_XX``
     Distance at or above the threshold in absolute value, regardless of
-    direction; used for the grade map and descriptive statistics.
+    direction; used for descriptive statistics.
+
+``max_up_grade_15m``
+    The routing constraint: the steepest climb over any 15 m stretch of the
+    smoothed profile, in the direction of travel (see
+    :func:`uphill_window_grades`).  Always >= 0: descending is not limited.
 """
 
 from __future__ import annotations
@@ -56,6 +61,7 @@ from sf_flat_routes.config import (
     GRADE_THRESHOLDS,
     MIN_RELIABLE_GRADE_LENGTH_M,
     PROCESSED_DIR,
+    UPHILL_WINDOW_M,
 )
 from sf_flat_routes.utils import get_logger, progress, step
 
@@ -367,6 +373,106 @@ def directional_metrics(
     return out
 
 
+def window_grades(dist: np.ndarray, z: np.ndarray, window: float) -> tuple[np.ndarray, np.ndarray]:
+    """Grade over every ``window``-metre stretch starting at a profile sample.
+
+    Returns ``(grades, midpoints)``: for each sample ``i`` whose window fits
+    inside the profile, ``(z(d_i + window) - z(d_i)) / window`` (the far end
+    interpolated linearly) and the distance of the window's midpoint.
+    """
+    dist = np.asarray(dist, dtype="float64")
+    z = np.asarray(z, dtype="float64")
+    fits = dist + window <= dist[-1] + 1e-9
+    starts = dist[fits]
+    far = np.interp(starts + window, dist, z)
+    return (far - z[fits]) / window, starts + window / 2
+
+
+def arc_uphill_grades(
+    dist: np.ndarray, z: np.ndarray, lo: float, hi: float, window: float = UPHILL_WINDOW_M
+) -> tuple[float, float]:
+    """Steepest uphill over ``window`` m for the stretch ``[lo, hi]`` of a profile.
+
+    ``dist``/``z`` is the continuous profile of a whole street segment; the
+    arc is the part between ``lo`` and ``hi``.
+
+    * An arc at least ``window`` long: the steepest window whose midpoint lies
+      on the arc (near its ends, windows reach into the neighbouring arcs of
+      the same street), and never less than the arc's own average climb.
+    * A shorter arc: the window centred on it, moved along the street until it
+      fits.  Its own average climb is not used: over a 1-3 m stub the lidar's
+      decimetre noise reads as a 10-40% grade, and a genuinely steep pitch
+      that short is averaged over the window like any other.
+    * A street segment shorter than the window: its rise spread over the window.
+
+    A direction in which the arc never rises gets 0, whatever its neighbours
+    do.  Returns the forward (``lo`` -> ``hi``) and reverse values, each >= 0.
+    """
+    length, total = hi - lo, float(dist[-1])
+    z_lo, z_hi = np.interp([lo, hi], dist, z)
+    if length >= window:
+        avg = float(z_hi - z_lo) / length
+        grades, mids = window_grades(dist, z, window)
+        on_arc = grades[(mids >= lo - 1e-9) & (mids <= hi + 1e-9)]
+        top = float(on_arc.max()) if on_arc.size else avg
+        bottom = float(on_arc.min()) if on_arc.size else avg
+        fwd, rev = max(0.0, avg, top), max(0.0, -avg, -bottom)
+    elif total >= window:
+        start = min(max((lo + hi) / 2 - window / 2, 0.0), total - window)
+        z0, z1 = np.interp([start, start + window], dist, z)
+        g = float(z1 - z0) / window
+        fwd, rev = max(0.0, g), max(0.0, -g)
+    else:
+        g = float(z[-1] - z[0]) / window
+        fwd, rev = max(0.0, g), max(0.0, -g)
+    inside = (dist > lo + 1e-9) & (dist < hi - 1e-9)
+    steps = np.diff(np.concatenate([[z_lo], z[inside], [z_hi]]))
+    if not np.any(steps > 1e-6):
+        fwd = 0.0
+    if not np.any(steps < -1e-6):
+        rev = 0.0
+    return fwd, rev
+
+
+def uphill_window_grades(edges, profiles: dict) -> dict[int, tuple[float, float]]:
+    """``max_up_grade_15m`` for both directions of every edge.
+
+    Computed on each street segment's continuous profile (its contiguous
+    edges concatenated), then cut per edge.  Values are clamped to the
+    plausible-grade ceiling; edges that hit it are logged.
+    """
+    cap = ELEVATION.max_plausible_grade
+    out: dict[int, tuple[float, float]] = {}
+    clamped = []
+    for eids in contiguous_runs(edges):
+        cat_d, cat_z, bounds = [], [], []
+        base = 0.0
+        for k, eid in enumerate(eids):
+            d, z = profiles[int(eid)]
+            d = np.asarray(d, dtype="float64") - float(d[0])
+            z = np.asarray(z, dtype="float64")
+            bounds.append((base, base + float(d[-1])))
+            if k > 0:
+                d, z = d[1:], z[1:]
+            cat_d.append(base + d)
+            cat_z.append(z)
+            base = float(cat_d[-1][-1]) if cat_d[-1].size else base
+        dist, z = np.concatenate(cat_d), np.concatenate(cat_z)
+        for eid, (lo, hi) in zip(eids, bounds, strict=True):
+            fwd, rev = arc_uphill_grades(dist, z, lo, hi)
+            if fwd > cap or rev > cap:
+                clamped.append(int(eid))
+            out[int(eid)] = (min(fwd, cap), min(rev, cap))
+    if clamped:
+        log.warning(
+            "  %d edges hit the %.0f%% plausible-grade clamp on max_up_grade_15m: %s",
+            len(clamped),
+            cap * 100,
+            clamped[:20],
+        )
+    return out
+
+
 # --------------------------------------------------------------------------
 # table construction
 # --------------------------------------------------------------------------
@@ -478,6 +584,8 @@ def compute_edge_metrics(edges, profiles: dict, force: bool = False):
 
     with step("rectifying elevation profiles per street segment", log):
         rect = _rectify_by_segment(edges, profiles)
+    with step(f"steepest uphill over {UPHILL_WINDOW_M:.0f} m per direction", log):
+        uphill = uphill_window_grades(edges, profiles)
 
     with step(f"computing metrics for {len(edges):,} edges ({2 * len(edges):,} directed)", log):
         for edge_id, _length in progress(
@@ -507,6 +615,7 @@ def compute_edge_metrics(edges, profiles: dict, force: bool = False):
                 d = m[direction]
                 row = {"edge_id": int(edge_id), "direction": direction}
                 row.update({k: d[k] for k in _DIR_FIELDS})
+                row["max_up_grade_15m"] = uphill[int(edge_id)][0 if direction == "fwd" else 1]
                 for t in th_names:
                     row[f"d_above_{t}"] = d[f"d_above_{t}"]
                 dir_rows.append(row)
@@ -535,21 +644,15 @@ def compute_edge_metrics(edges, profiles: dict, force: bool = False):
             "subclass",
             "name",
             "is_structure",
-            "walk_ok",
-            "walk_oneway",
-            "bike_ok",
-            "bike_oneway",
-            "bike_facility",
-            "low_stress",
+            "ok",
         ]
     ]
     directed = directed.merge(base, on="edge_id", how="left")
     fwd = directed["direction"] == "fwd"
     directed["from_node"] = np.where(fwd, directed["u"], directed["v"])
     directed["to_node"] = np.where(fwd, directed["v"], directed["u"])
-    # one-way handling: pedestrians ignore it, bicycles do not
-    directed["walk_traversable"] = directed["walk_ok"]
-    directed["bike_traversable"] = directed["bike_ok"] & ~(directed["bike_oneway"] & ~fwd)
+    # one-way rules describe vehicle movement; a wheelchair user ignores them
+    directed["traversable"] = directed["ok"]
     directed = directed.drop(columns=["u", "v"])
 
     gdf.to_parquet(UNDIRECTED_PARQUET)
@@ -570,7 +673,6 @@ def compute_edge_metrics(edges, profiles: dict, force: bool = False):
                     "segment_id",
                     "u",
                     "v",
-                    "bike_facility",
                     "geometry",
                 )
             ]
@@ -580,9 +682,5 @@ def compute_edge_metrics(edges, profiles: dict, force: bool = False):
     except Exception as exc:  # pragma: no cover
         log.warning("could not write the GeoPackage mirror: %s", exc)
     log.info("wrote %s and %s", UNDIRECTED_PARQUET.name, DIRECTED_PARQUET.name)
-    log.info(
-        "directed edges traversable: walk %d, bike %d",
-        int(directed["walk_traversable"].sum()),
-        int(directed["bike_traversable"].sum()),
-    )
+    log.info("directed edges traversable: %d", int(directed["traversable"].sum()))
     return gdf, directed

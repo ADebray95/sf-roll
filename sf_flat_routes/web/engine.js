@@ -1,9 +1,9 @@
-/* San Francisco flat routes -- the routing engine.
+/* Roll SF -- the routing engine.
  *
  * The whole routable graph is embedded (see sf_flat_routes/webgraph.py), so
- * routing happens in the browser: a Dijkstra over ~160,000 directed arcs with
- * the same cost model Python uses. Shared by the explorer (app.js) and the
- * simple route page (simple.js).
+ * routing happens in the browser: a Dijkstra over the directed arcs of one
+ * travel mode, costed as length plus alpha times climbing. Used by the route
+ * page (simple.js).
  */
 "use strict";
 
@@ -19,25 +19,17 @@
  * @typedef {{ o: number, b: number }} StringEntry
  * @typedef {{ arrays: Record<string, ArrayEntry>, strings: Record<string, StringEntry> }} Manifest
  * @typedef {{ bundle?: string, bundle_url?: string, bundle_bytes?: number }} BundleSource
- * @typedef {"walk" | "bike"} Mode
  *
  * @typedef {object} GraphMeta
  * @property {number} n_nodes
+ * @property {number} n_arcs
  * @property {number} n_edges
- * @property {number[]} thresholds grade thresholds, one arc_th<t> array each
- * @property {{ dm: number, cm: number, coord: number, grade: number, stress?: number }} scales
+ * @property {{ dm: number, cm: number, coord: number, grade: number }} scales
  * @property {string[]} classes
  * @property {string[]} names
- * @property {Partial<Record<Mode, number[]>>} multipliers per-class length factors
  *
  * @typedef {object} Weights
- * @property {number} alpha
- * @property {number} beta
- * @property {number} gamma
- * @property {number[]} penalties
- * @property {number} extreme
- * @property {boolean} [use_class_multiplier]
- * @property {boolean} [stress]
+ * @property {number} alpha metres of length one metre of climbing is worth
  *
  * @typedef {{ indptr: Int32Array, arcs: Int32Array, tail: Int32Array }} ReverseAdjacency
  * @typedef {{ arcs: number[], cost: number, settled: number }} RouteResult
@@ -68,7 +60,6 @@
  * @typedef {object} LoopOptions
  * @property {number} targetM
  * @property {number} [alpha]
- * @property {boolean} [stress]
  * @property {number} [sectors]
  * @property {number} [tol]
  * @property {number} [maxOverlap]
@@ -100,7 +91,6 @@
  * @property {number} [dCap]
  * @property {number} [gCap]
  * @property {number} [maxLabels]
- * @property {boolean} [stress]
  *
  * @typedef {{ arcs: number[], length: number, weighted: number, gain: number }} ParetoSolution
  *
@@ -114,13 +104,9 @@
  *
  * @typedef {object} RouteSummary
  * @property {number} distance_m
- * @property {number} stress_m
  * @property {number} elev_gain_m
  * @property {number} elev_loss_m
- * @property {number} steepest
- * @property {number} max_grade
- * @property {number} avg_abs_grade
- * @property {number[]} thresholds
+ * @property {number} steepest steepest uphill over 15 m, as a fraction
  * @property {number} n_edges
  * @property {number} start_elev_m
  * @property {number} end_elev_m
@@ -129,12 +115,7 @@
  * @typedef {object} EdgeInfo
  * @property {string | null} name
  * @property {string | undefined} cls
- * @property {number} bucket
- * @property {number} max_grade
- * @property {number} avg_grade
  * @property {number} length_m
- * @property {number} gain_per_km
- * @property {boolean} low_stress
  */
 
 /* ------------------------------------------------------------------ decode */
@@ -394,35 +375,15 @@ class Graph {
     this.arcLen = bundle.array("arc_len");
     this.arcGain = bundle.array("arc_gain");
     this.arcLoss = bundle.array("arc_loss");
-    this.arcMaxGrade = bundle.array("arc_maxgrade");
-    this.arcMeanGrade = bundle.array("arc_meangrade");
-    this.arcCls = bundle.array("arc_cls");
+    this.arcMaxUp = bundle.array("arc_maxup");
     this.arcFlags = bundle.array("arc_flags");
-    this.th = meta.thresholds.map((t) => bundle.array("arc_th" + t));
+    this.edgeCls = bundle.array("edge_cls");
     this.m = this.head.length;
 
     this.DM = meta.scales.dm;
     this.CM = meta.scales.cm;
     this.COORD = meta.scales.coord;
     this.GRADE = meta.scales.grade;
-
-    // Comfort-weighted arc lengths for bike mode, in the same units as
-    // arcLen: a block of busy arterial counts as more than its length, a
-    // block with a protected lane as less (bikeways.py has the table).
-    // Searches that take a ``stress`` flag route on these instead.
-    this.arcLenStress = this.arcLen;
-    if (bundle.has("edge_stress")) {
-      this.edgeStress = bundle.array("edge_stress");
-      const q = meta.scales.stress || 100,
-        s = new Int32Array(this.m);
-      for (let a = 0; a < this.m; a++)
-        s[a] = Math.round(
-          (/** @type {number} */ (this.arcLen[a]) *
-            /** @type {number} */ (this.edgeStress[/** @type {number} */ (this.arcEdge[a])])) /
-            q,
-        );
-      this.arcLenStress = s;
-    }
 
     // scratch arrays reused across searches, with a visit stamp so nothing
     // has to be cleared between runs
@@ -456,75 +417,28 @@ class Graph {
   nodeZ(i) {
     return /** @type {number} */ (this.nodeElev[i]) / this.DM;
   }
-  /**
-   * @param {Mode} mode
-   * @returns {number}
-   */
-  modeBit(mode) {
-    return mode === "bike" ? 2 : 1;
-  }
-  /**
-   * @param {boolean | undefined} stress
-   * @returns {NumArray}
-   */
-  lengths(stress) {
-    return stress ? this.arcLenStress : this.arcLen;
-  }
-
-  /** Cost of one arc in equivalent metres. Mirrors routing.edge_costs.
+  /** Cost of one arc in equivalent metres: its length plus alpha times its
+   * climbing.
    * @param {number} a
-   * @param {Weights} w
-   * @param {number[]} mult
-   * @param {NumArray} [len]
+   * @param {number} alpha
    * @returns {number}
    */
-  arcCost(a, w, mult, len = this.arcLen) {
-    let c =
-      (/** @type {number} */ (len[a]) / this.DM) *
-      /** @type {number} */ (mult[/** @type {number} */ (this.arcCls[a])]);
-    c += w.alpha * (/** @type {number} */ (this.arcGain[a]) / this.CM);
-    if (w.beta) {
-      let pen = 0;
-      for (let k = 0; k < this.th.length; k++) {
-        const p = w.penalties[k];
-        if (p)
-          pen += p * (/** @type {number} */ (/** @type {NumArray} */ (this.th[k])[a]) / this.DM);
-      }
-      c += w.beta * pen;
-    }
-    if (w.gamma && w.extreme) {
-      c +=
-        w.gamma *
-        w.extreme *
-        (/** @type {number} */ (/** @type {NumArray} */ (this.th[this.th.length - 1])[a]) /
-          this.DM);
-    }
+  arcCost(a, alpha) {
+    const c =
+      /** @type {number} */ (this.arcLen[a]) / this.DM +
+      (alpha * /** @type {number} */ (this.arcGain[a])) / this.CM;
     return c > 1e-6 ? c : 1e-6;
-  }
-
-  /**
-   * @param {Mode} mode
-   * @param {Weights} w
-   * @returns {number[]}
-   */
-  multipliers(mode, w) {
-    const base = this.meta.multipliers[mode] || [];
-    if (w.use_class_multiplier === false) return base.map(() => 1);
-    return base;
   }
 
   /** Dijkstra with a flat binary heap, stopping once the target settles.
    * @param {number} src
    * @param {number} dst
-   * @param {Mode} mode
    * @param {Weights} w
    * @returns {RouteResult | null}
    */
-  route(src, dst, mode, w) {
+  route(src, dst, w) {
     if (src === dst || src < 0 || dst < 0) return null;
-    const bit = this.modeBit(mode);
-    const mult = this.multipliers(mode, w),
-      len = this.lengths(w.stress);
+    const alpha = w.alpha;
     const { dist, prev, seen, done, indptr, head } = this;
     const stamp = ++this.stamp;
 
@@ -604,10 +518,10 @@ class Graph {
         a < /** @type {number} */ (indptr[u + 1]);
         a++
       ) {
-        if ((/** @type {number} */ (this.arcFlags[a]) & bit) === 0) continue;
+        if ((/** @type {number} */ (this.arcFlags[a]) & 1) === 0) continue;
         const v = /** @type {number} */ (head[a]);
         if (seen[v] === stamp && done[v]) continue;
-        const nd = dv + this.arcCost(a, w, mult, len);
+        const nd = dv + this.arcCost(a, alpha);
         if (seen[v] !== stamp || nd < /** @type {number} */ (dist[v])) {
           seen[v] = stamp;
           dist[v] = nd;
@@ -633,117 +547,6 @@ class Graph {
     return { arcs, cost: /** @type {number} */ (dist[dst]), settled };
   }
 
-  /** Costs from one source to a set of target nodes: the same search as
-   * route(), run until every target has settled. Used for the warp's cost
-   * matrix, where one source serves ~100 targets at a time.
-   * @param {number} src
-   * @param {Mode} mode
-   * @param {Weights} w
-   * @param {number[]} targets
-   * @returns {number[]}
-   */
-  distances(src, mode, w, targets) {
-    const bit = this.modeBit(mode);
-    const mult = this.multipliers(mode, w);
-    const { dist, seen, done, indptr, head } = this;
-    const stamp = ++this.stamp;
-    const want = new Int32Array(this.n);
-    let remaining = 0;
-    for (const t of targets) {
-      if (!want[t]) {
-        want[t] = 1;
-        remaining++;
-      }
-    }
-    let hk = this.heapKey,
-      hv = this.heapVal,
-      hn = 0;
-    /**
-     * @param {number} key
-     * @param {number} val
-     */
-    const push = (key, val) => {
-      if (hn === hk.length) {
-        const nk = new Float64Array(hk.length * 2),
-          nv = new Int32Array(hv.length * 2);
-        nk.set(hk);
-        nv.set(hv);
-        hk = this.heapKey = nk;
-        hv = this.heapVal = nv;
-      }
-      let i = hn++;
-      hk[i] = key;
-      hv[i] = val;
-      while (i > 0) {
-        const p = (i - 1) >> 1;
-        if (/** @type {number} */ (hk[p]) <= /** @type {number} */ (hk[i])) break;
-        const tk = /** @type {number} */ (hk[p]),
-          tv = /** @type {number} */ (hv[p]);
-        hk[p] = /** @type {number} */ (hk[i]);
-        hv[p] = /** @type {number} */ (hv[i]);
-        hk[i] = tk;
-        hv[i] = tv;
-        i = p;
-      }
-    };
-    /** @returns {[number, number]} the minimum's key and value */
-    const pop = () => {
-      const top = /** @type {number} */ (hv[0]),
-        topk = /** @type {number} */ (hk[0]);
-      hn--;
-      if (hn > 0) {
-        hk[0] = /** @type {number} */ (hk[hn]);
-        hv[0] = /** @type {number} */ (hv[hn]);
-        let i = 0;
-        for (;;) {
-          const l = 2 * i + 1,
-            r = l + 1;
-          let m = i;
-          if (l < hn && /** @type {number} */ (hk[l]) < /** @type {number} */ (hk[m])) m = l;
-          if (r < hn && /** @type {number} */ (hk[r]) < /** @type {number} */ (hk[m])) m = r;
-          if (m === i) break;
-          const tk = /** @type {number} */ (hk[m]),
-            tv = /** @type {number} */ (hv[m]);
-          hk[m] = /** @type {number} */ (hk[i]);
-          hv[m] = /** @type {number} */ (hv[i]);
-          hk[i] = tk;
-          hv[i] = tv;
-          i = m;
-        }
-      }
-      return [topk, top];
-    };
-    seen[src] = stamp;
-    dist[src] = 0;
-    done[src] = 0;
-    push(0, src);
-    while (hn > 0 && remaining > 0) {
-      const [dv, u] = pop();
-      if (seen[u] !== stamp || done[u]) continue;
-      done[u] = 1;
-      if (want[u]) remaining--;
-      for (
-        let a = /** @type {number} */ (indptr[u]);
-        a < /** @type {number} */ (indptr[u + 1]);
-        a++
-      ) {
-        if ((/** @type {number} */ (this.arcFlags[a]) & bit) === 0) continue;
-        const v = /** @type {number} */ (head[a]);
-        if (seen[v] === stamp && done[v]) continue;
-        const nd = dv + this.arcCost(a, w, mult);
-        if (seen[v] !== stamp || nd < /** @type {number} */ (dist[v])) {
-          seen[v] = stamp;
-          dist[v] = nd;
-          done[v] = 0;
-          push(nd, v);
-        }
-      }
-    }
-    return targets.map((t) =>
-      seen[t] === stamp && done[t] ? /** @type {number} */ (dist[t]) : Infinity,
-    );
-  }
-
   /** One Dijkstra over a per-arc cost array: forward from src, or with
    * reverse, backward into src (dist[v] is then the cost of v -> src and
    * prev[v] the first arc of that path). It can stop at a target, and edges
@@ -751,19 +554,16 @@ class Graph {
    * home is pushed off the streets it went out on. len and gain carry the
    * real length and climbing (m) of each tree path.
    * @param {number} src
-   * @param {Mode} mode
    * @param {Float64Array} cost
    * @param {TreeOptions} [options]
    * @returns {Tree}
    */
   tree(
     src,
-    mode,
     cost,
     { reverse = false, target = -1, pen = null, penNode = null, penK = 0, minPerM = 0 } = {},
   ) {
     const n = this.n,
-      bit = this.modeBit(mode),
       rev = reverse ? this.reverse() : null;
     const dist = new Float64Array(n).fill(Infinity),
       prev = new Int32Array(n).fill(-1);
@@ -802,7 +602,7 @@ class Graph {
         const a = reverse
           ? /** @type {number} */ (/** @type {ReverseAdjacency} */ (rev).arcs[k])
           : k;
-        if ((/** @type {number} */ (this.arcFlags[a]) & bit) === 0) continue;
+        if ((/** @type {number} */ (this.arcFlags[a]) & 1) === 0) continue;
         const v = reverse
           ? /** @type {number} */ (/** @type {ReverseAdjacency} */ (rev).tail[a])
           : /** @type {number} */ (this.head[a]);
@@ -830,13 +630,11 @@ class Graph {
   /** Corners a loop may turn at: real intersections, where at least three
    * ways meet and at least one is a street (not only footways, service
    * lanes or steps), so a loop never turns around at the end of a
-   * parking-lot lane. Cached per mode.
-   * @param {Mode} mode
+   * parking-lot lane. Built on first use.
    * @returns {Uint8Array}
    */
-  corners(mode) {
-    this._corners = this._corners || {};
-    if (this._corners[mode]) return this._corners[mode];
+  corners() {
+    if (this._corners) return this._corners;
     const STREETS = new Set([
       "trunk",
       "primary",
@@ -850,8 +648,7 @@ class Graph {
       "path",
     ]);
     const street = this.meta.classes.map((c) => STREETS.has(c));
-    const bit = this.modeBit(mode),
-      { indptr, arcs, tail } = this.reverse();
+    const { indptr, arcs, tail } = this.reverse();
     const ok = new Uint8Array(this.n),
       seen = new Int32Array(this.n).fill(-1);
     for (let u = 0; u < this.n; u++) {
@@ -862,8 +659,9 @@ class Graph {
        * @param {number} a
        */
       const touch = (v, a) => {
-        if ((/** @type {number} */ (this.arcFlags[a]) & bit) === 0) return;
-        if (street[/** @type {number} */ (this.arcCls[a])]) onStreet = true;
+        if ((/** @type {number} */ (this.arcFlags[a]) & 1) === 0) return;
+        if (street[/** @type {number} */ (this.edgeCls[/** @type {number} */ (this.arcEdge[a])])])
+          onStreet = true;
         if (seen[v] !== u) {
           seen[v] = u;
           deg++;
@@ -886,7 +684,7 @@ class Graph {
         );
       ok[u] = deg >= 3 && onStreet ? 1 : 0;
     }
-    this._corners[mode] = ok;
+    this._corners = ok;
     return ok;
   }
 
@@ -940,17 +738,14 @@ class Graph {
    * Results: search.loops (best first, mutually distinct) and
    * search.accepted (every loop that met the length and overlap tests).
    * @param {number} src
-   * @param {Mode} mode
    * @param {LoopOptions} options
    * @returns {LoopSearch}
    */
   loops(
     src,
-    mode,
     {
       targetM,
       alpha = 30,
-      stress = false,
       sectors = 24,
       tol = 0.12,
       maxOverlap = 0.3,
@@ -965,13 +760,12 @@ class Graph {
     } = /** @type {LoopOptions} */ ({}),
   ) {
     const g = this,
-      T = targetM,
-      L = g.lengths(stress);
+      T = targetM;
     // a few metres per arc keeps routes off zigzags through tiny segments
     const cost = new Float64Array(g.m);
     for (let a = 0; a < g.m; a++)
       cost[a] =
-        /** @type {number} */ (L[a]) / g.DM +
+        /** @type {number} */ (g.arcLen[a]) / g.DM +
         (alpha * /** @type {number} */ (g.arcGain[a])) / g.CM +
         perArc;
     // step is attached below, before the search is handed out
@@ -1031,10 +825,9 @@ class Graph {
       }
       return best;
     };
-    // cost per metre is never below the shortest-looking length factor
-    // (0.8 on a protected lane in calm-streets mode), less a little for the
-    // quantised lengths: the floor that keeps A* exact
-    const minPerM = stress ? 0.78 : 0.98;
+    // cost per metre is never below 1 (climbing only adds to it), less a
+    // little for the quantised lengths: the floor that keeps A* exact
+    const minPerM = 0.98;
     /**
      * @param {number} from
      * @param {number} to
@@ -1043,7 +836,7 @@ class Graph {
      * @returns {number[] | null}
      */
     const leg = (from, to, pen, penNode) => {
-      const t = g.tree(from, mode, cost, { target: to, pen, penNode, penK, minPerM });
+      const t = g.tree(from, cost, { target: to, pen, penNode, penK, minPerM });
       return t.done[to] ? g.treePath(t, to) : null;
     };
     /**
@@ -1219,10 +1012,10 @@ class Graph {
     search.step = (budgetMs = 30) => {
       const start = performance.now();
       if (!F) {
-        F = g.tree(src, mode, cost);
-        B = g.tree(src, mode, cost, { reverse: true });
+        F = g.tree(src, cost);
+        B = g.tree(src, cost, { reverse: true });
         bySector = Array.from({ length: sectors }, () => /** @type {number[]} */ ([]));
-        const corner = g.corners(mode);
+        const corner = g.corners();
         nodeGrid = new Map();
         for (let v = 0; v < g.n; v++) {
           if (!F.done[v] || /** @type {number} */ (F.len[v]) > 0.75 * T) continue;
@@ -1339,13 +1132,11 @@ class Graph {
   /** Exact lower bound from every node to dst on one per-arc weight (a
    * reverse Dijkstra), in that weight's own integer units.
    * @param {number} dst
-   * @param {Mode} mode
    * @param {NumArray} weight
    * @returns {Float64Array}
    */
-  boundsTo(dst, mode, weight) {
+  boundsTo(dst, weight) {
     const { indptr, arcs, tail } = this.reverse();
-    const bit = this.modeBit(mode);
     const dist = new Float64Array(this.n).fill(Infinity);
     const done = new Uint8Array(this.n);
     const heap = new MinHeap();
@@ -1362,7 +1153,7 @@ class Graph {
         k++
       ) {
         const a = /** @type {number} */ (arcs[k]);
-        if ((/** @type {number} */ (this.arcFlags[a]) & bit) === 0) continue;
+        if ((/** @type {number} */ (this.arcFlags[a]) & 1) === 0) continue;
         const v = /** @type {number} */ (tail[a]),
           nd = du + /** @type {number} */ (weight[a]);
         if (nd < /** @type {number} */ (dist[v])) {
@@ -1398,28 +1189,18 @@ class Graph {
    * the page can keep painting.
    * @param {number} src
    * @param {number} dst
-   * @param {Mode} mode
    * @param {ParetoOptions} [options]
    * @returns {ParetoSearch}
    */
   pareto(
     src,
     dst,
-    mode,
-    {
-      eps = 50,
-      epsNode = eps,
-      dCap = Infinity,
-      gCap = Infinity,
-      maxLabels = 4e6,
-      stress = false,
-    } = {},
+    { eps = 50, epsNode = eps, dCap = Infinity, gCap = Infinity, maxLabels = 4e6 } = {},
   ) {
     const g = this;
-    const bit = g.modeBit(mode),
-      len = g.lengths(stress);
-    const h1 = g.boundsTo(dst, mode, len),
-      h2 = g.boundsTo(dst, mode, g.arcGain);
+    const len = g.arcLen;
+    const h1 = g.boundsTo(dst, len),
+      h2 = g.boundsTo(dst, g.arcGain);
     const g2min = new Float64Array(g.n).fill(Infinity);
     let cap = 1 << 16;
     let lNode = new Int32Array(cap),
@@ -1516,7 +1297,7 @@ class Graph {
           a < /** @type {number} */ (g.indptr[node + 1]);
           a++
         ) {
-          if ((/** @type {number} */ (g.arcFlags[a]) & bit) === 0) continue;
+          if ((/** @type {number} */ (g.arcFlags[a]) & 1) === 0) continue;
           const v = /** @type {number} */ (g.head[a]),
             n1 = g1 + /** @type {number} */ (len[a]),
             n2 = g2 + /** @type {number} */ (g.arcGain[a]);
@@ -1569,14 +1350,12 @@ class Graph {
   /** Total cost of an explicit arc sequence, for comparison against other
    * implementations of the same cost model.
    * @param {number[]} arcs
-   * @param {Mode} mode
    * @param {Weights} w
    * @returns {number}
    */
-  pathCost(arcs, mode, w) {
-    const mult = this.multipliers(mode, w);
+  pathCost(arcs, w) {
     let c = 0;
-    for (const a of arcs) c += this.arcCost(a, w, mult);
+    for (const a of arcs) c += this.arcCost(a, w.alpha);
     return c;
   }
 
@@ -1596,7 +1375,8 @@ class Graph {
     return lo;
   }
 
-  /** Aggregate a route exactly as routing.summarise_route does.
+  /** Totals for a route: length, climbing and descent, and the steepest
+   * uphill stretch (over 15 m, in the direction of travel) it contains.
    * @param {number[]} arcs
    * @returns {RouteSummary}
    */
@@ -1604,49 +1384,20 @@ class Graph {
     let dist = 0,
       gain = 0,
       loss = 0,
-      maxg = -Infinity,
-      wgrade = 0,
-      stressed = 0,
       steep = 0;
-    const th = Array.from({ length: this.th.length }, () => 0);
     for (const a of arcs) {
-      const L = /** @type {number} */ (this.arcLen[a]) / this.DM;
-      dist += L;
-      stressed += /** @type {number} */ (this.arcLenStress[a]) / this.DM;
+      dist += /** @type {number} */ (this.arcLen[a]) / this.DM;
       gain += /** @type {number} */ (this.arcGain[a]) / this.CM;
       loss += /** @type {number} */ (this.arcLoss[a]) / this.CM;
-      const g = /** @type {number} */ (this.arcMaxGrade[a]) / this.GRADE;
-      if (g > maxg) maxg = g;
-      // the steepest figure the route page shows: over a block shorter than
-      // 15 m a peak grade is lidar noise (a 3 m stub at Cesar Chavez reads
-      // 45%), so there the block's average climb stands in, as the analysis
-      // does for its gradient tests (config.MIN_RELIABLE_GRADE_LENGTH_M)
-      const sg =
-        L >= 15
-          ? g
-          : Math.max(
-              0,
-              (/** @type {number} */ (this.arcGain[a]) - /** @type {number} */ (this.arcLoss[a])) /
-                this.CM /
-                Math.max(L, 1e-6),
-            );
-      if (sg > steep) steep = sg;
-      wgrade += (/** @type {number} */ (this.arcMeanGrade[a]) / this.GRADE) * L;
-      for (let k = 0; k < th.length; k++)
-        /** @type {number} */ (th[k]) +=
-          /** @type {number} */ (/** @type {NumArray} */ (this.th[k])[a]) / this.DM;
+      const up = /** @type {number} */ (this.arcMaxUp[a]) / this.GRADE;
+      if (up > steep) steep = up;
     }
-    if (!arcs.length) maxg = 0;
     const prof = this.profile(arcs);
     return {
       distance_m: dist,
-      stress_m: stressed,
       elev_gain_m: gain,
       elev_loss_m: loss,
       steepest: steep,
-      max_grade: maxg,
-      avg_abs_grade: dist > 0 ? wgrade / dist : 0,
-      thresholds: th,
       n_edges: arcs.length,
       start_elev_m: prof.z.length ? /** @type {number} */ (prof.z[0]) : 0,
       end_elev_m: prof.z.length ? /** @type {number} */ (prof.z[prof.z.length - 1]) : 0,
@@ -1713,15 +1464,9 @@ class Geometry {
     this.nEdges = meta.n_edges;
     this.name = bundle.array("edge_name");
     this.cls = bundle.array("edge_cls");
-    this.bucket = bundle.array("edge_bucket");
-    this.maxgrade = bundle.array("edge_maxgrade");
-    this.avggrade = bundle.array("edge_avggrade");
     this.len = bundle.array("edge_len");
-    this.gainkm = bundle.array("edge_gainkm");
-    this.lowstress = bundle.array("edge_lowstress");
     this.names = meta.names;
     this.classes = meta.classes;
-    this.GRADE = meta.scales.grade;
     this.DM = meta.scales.dm;
 
     // decode every edge once into flat coordinate storage
@@ -1788,12 +1533,7 @@ class Geometry {
         ? /** @type {string} */ (this.names[/** @type {number} */ (this.name[row]) - 1])
         : null,
       cls: this.classes[/** @type {number} */ (this.cls[row])],
-      bucket: /** @type {number} */ (this.bucket[row]),
-      max_grade: /** @type {number} */ (this.maxgrade[row]) / this.GRADE,
-      avg_grade: /** @type {number} */ (this.avggrade[row]) / this.GRADE,
       length_m: /** @type {number} */ (this.len[row]) / this.DM,
-      gain_per_km: /** @type {number} */ (this.gainkm[row]) / this.DM,
-      low_stress: !!this.lowstress[row],
     };
   }
 }

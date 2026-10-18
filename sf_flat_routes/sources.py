@@ -152,7 +152,7 @@ DATASETS: tuple[Dataset, ...] = (
         accessed=ACCESS_DATE,
         resolution="Vector polygons, 37 features",
         licence="Public domain / open data (City & County of San Francisco)",
-        role="Neighborhood boundaries for origin/destination selection and corridor attribution.",
+        role="City outline for clipping the street network, and the map's neighbourhood labels.",
         local="data/raw/sf_neighborhoods.geojson",
         limitations=(
             "This is the long-standing 37-unit San Francisco planning "
@@ -219,30 +219,6 @@ DATASETS: tuple[Dataset, ...] = (
         local="data/raw/overture_addresses_sf.parquet",
         limitations="One point per (street, number) is kept; unit numbers "
         "are dropped. Not used by the analysis itself.",
-        optional=True,
-    ),
-    Dataset(
-        key="bike_network",
-        title="SFMTA Bike Network (linear features)",
-        publisher="SFMTA via DataSF",
-        url="https://data.sfgov.org/Transportation/MTA-Bike-Network-Linear-Features/",
-        accessed="2026-10-05 (downloaded by hand; data.sfgov.org is blocked "
-        "from the build environment)",
-        resolution="5,457 centreline segments with SFMTA facility class "
-        "(I path, II lane, III route, IV separated), buffering and "
-        "barrier type; data_as_of 2023-10 to 2026-04",
-        licence="Open data (City & County of San Francisco)",
-        role="Bike-mode comfort weighting on the route page ('prefer calm "
-        "streets'); see bikeways.py.",
-        local="data/raw/sfmta_bike_network.geojson",
-        limitations=(
-            "Keyed by CNN, which Overture does not carry, so segments are "
-            "matched to graph edges geometrically (within 12 m and 25 degrees, "
-            "over at least half the edge). Roughly 580 of 760 km match; the "
-            "rest is Presidio and park paths outside the routable graph or "
-            "double-counted one-way pairs. Slow Streets are not in this "
-            "dataset; they are handled through Overture access rules."
-        ),
         optional=True,
     ),
 )

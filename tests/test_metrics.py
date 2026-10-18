@@ -5,6 +5,7 @@ import pytest
 
 from sf_flat_routes.config import ELEVATION, GRADE_THRESHOLDS
 from sf_flat_routes.metrics import (
+    arc_uphill_grades,
     cumulative_gain_loss,
     deadband_filter,
     directional_metrics,
@@ -13,6 +14,7 @@ from sf_flat_routes.metrics import (
     prune_reversal_indices,
     rectify_profile,
     weighted_percentile,
+    window_grades,
 )
 
 DB = ELEVATION.gain_deadband_m
@@ -212,3 +214,69 @@ def test_thresholds_present_for_both_directions():
     for d in ("fwd", "rev"):
         for t in (3, 5, 8, 10, 15):
             assert f"d_above_{t}" in m[d]
+
+
+# ------------------------------------------------- max_up_grade_15m
+
+
+def _ramp(grades_by_stretch, spacing=5.0):
+    """A profile made of (length_m, grade) stretches, sampled every ``spacing`` m."""
+    d, z = [0.0], [0.0]
+    for length, grade in grades_by_stretch:
+        for _ in range(int(round(length / spacing))):
+            d.append(d[-1] + spacing)
+            z.append(z[-1] + grade * spacing)
+    return np.array(d), np.array(z)
+
+
+def test_window_grade_of_a_constant_slope():
+    d, z = _ramp([(100, 0.08)])
+    g, mids = window_grades(d, z, 15.0)
+    assert np.allclose(g, 0.08)
+    assert mids[0] == pytest.approx(7.5) and mids[-1] <= d[-1] - 7.5 + 1e-9
+
+
+def test_steep_pitch_is_found_inside_a_gentle_arc():
+    d, z = _ramp([(40, 0.02), (20, 0.20), (40, 0.02)])
+    fwd, rev = arc_uphill_grades(d, z, 0.0, 100.0)
+    assert fwd == pytest.approx(0.20, abs=1e-9)
+    assert rev == 0.0  # the arc never descends going forward, so never climbs going back
+
+
+def test_descent_is_unconstrained_and_climb_is_measured_in_travel_direction():
+    d, z = _ramp([(60, -0.15)])
+    fwd, rev = arc_uphill_grades(d, z, 0.0, 60.0)
+    assert fwd == 0.0 and rev == pytest.approx(0.15)
+
+
+def test_windows_reach_into_the_next_arc_of_the_same_street():
+    # the arc [0, 50] is gentle; the street turns steep right after it
+    d, z = _ramp([(50, 0.01), (50, 0.25)])
+    fwd, _ = arc_uphill_grades(d, z, 0.0, 50.0)
+    assert 0.05 < fwd < 0.25  # a window centred near the corner straddles it
+
+
+def test_an_arc_that_only_descends_has_zero_uphill_even_next_to_a_climb():
+    d, z = _ramp([(50, -0.05), (50, 0.25)])
+    fwd, _ = arc_uphill_grades(d, z, 0.0, 50.0)
+    assert fwd == 0.0
+
+
+def test_window_value_is_at_least_the_average_climb():
+    d, z = _ramp([(15, 0.0), (20, 0.10)])
+    fwd, _ = arc_uphill_grades(d, z, 0.0, 35.0)
+    assert fwd >= (z[-1] - z[0]) / 35.0
+
+
+def test_a_short_arc_takes_the_window_centred_on_it_not_its_own_noise():
+    # a flat street with a 1 m stub that reads +30 cm from lidar noise
+    d = np.array([0.0, 5.0, 10.0, 20.0, 21.0, 25.0, 30.0, 40.0])
+    z = np.array([0.0, 0.0, 0.0, 0.0, 0.3, 0.3, 0.3, 0.3])
+    fwd, _ = arc_uphill_grades(d, z, 20.0, 21.0)
+    assert fwd == pytest.approx(0.3 / 15.0)  # 2%, not 30%
+
+
+def test_a_street_shorter_than_the_window_spreads_its_rise_over_the_window():
+    d, z = np.array([0.0, 3.0, 6.0]), np.array([0.0, 0.3, 0.6])
+    fwd, rev = arc_uphill_grades(d, z, 0.0, 6.0)
+    assert fwd == pytest.approx(0.6 / 15.0) and rev == 0.0
