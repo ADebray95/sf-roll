@@ -13,9 +13,12 @@ EDGES = PROCESSED_DIR / "edges_metrics.parquet"
 DIRECTED = PROCESSED_DIR / "edges_directed.parquet"
 PAIRS = PROCESSED_DIR / "neighborhood_pairs.parquet"
 
-pytestmark = pytest.mark.skipif(
-    not (EDGES.exists() and DIRECTED.exists()),
-    reason="processed data not built; run `python -m sf_flat_routes all`")
+pytestmark = [
+    pytest.mark.needs_data,
+    pytest.mark.skipif(
+        not (EDGES.exists() and DIRECTED.exists()),
+        reason="processed data not built; run `python -m sf_flat_routes all`"),
+]
 
 
 @pytest.fixture(scope="module")

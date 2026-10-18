@@ -57,6 +57,7 @@ def _chromium() -> str | None:
 
 
 pytestmark = [
+    pytest.mark.needs_data,
     pytest.mark.skipif(not INTERACTIVE_HTML.exists(),
                        reason="map not built; run `python -m sf_flat_routes map`"),
     pytest.mark.skipif(not (PROCESSED_DIR / "edges_directed.parquet").exists(),

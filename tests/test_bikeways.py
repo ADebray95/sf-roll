@@ -80,4 +80,4 @@ def test_the_real_network_has_every_facility_class():
     assert counts["route"] > 2000 and counts["lane"] > 1500
     assert counts["separated"] > 500 and counts["path"] > 300
     assert bw.crs.to_epsg() == 4326
-    assert np.all(np.isfinite(bw.geometry.length))
+    assert np.all(np.isfinite(bw.to_crs("EPSG:26910").geometry.length))

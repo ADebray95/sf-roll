@@ -138,6 +138,7 @@ import pytest  # noqa: E402
 from sf_flat_routes.config import PROCESSED_DIR  # noqa: E402
 
 
+@pytest.mark.needs_data
 @pytest.mark.skipif(not (PROCESSED_DIR / "edges_metrics.parquet").exists(),
                     reason="processed network not built")
 def test_slow_streets_are_walkable_and_bikeable():

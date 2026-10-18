@@ -69,6 +69,7 @@ def index():
     return places.build_places()
 
 
+@pytest.mark.needs_data
 @needs_places
 @needs_base
 def test_place_index_is_compact_and_inside_the_city(index):
@@ -81,6 +82,7 @@ def test_place_index_is_compact_and_inside_the_city(index):
     assert len(set(index["names"])) == n or len(set(zip(index["names"], index["group"]))) == n
 
 
+@pytest.mark.needs_data
 @needs_places
 @needs_base
 def test_mapped_features_win_over_the_poi_feed(index):
@@ -102,6 +104,7 @@ def test_mapped_features_win_over_the_poi_feed(index):
         assert abs(lo - lon) < 0.004 and abs(la - lat) < 0.004, name
 
 
+@pytest.mark.needs_data
 @needs_addresses
 def test_addresses_pack_into_sorted_uint16_offsets():
     a = places.build_addresses()
