@@ -39,6 +39,7 @@ method is spelled out here and mirrored in the README.
     genuinely flat street accumulate tens of metres of phantom climbing over
     a few kilometres.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -75,11 +76,11 @@ def build_dem_mosaic(force: bool = False) -> Path:
     tiles = sorted(DEM_DIR.glob("*.tif"))
     if not tiles:
         raise FileNotFoundError(
-            f"no DEM tiles in {DEM_DIR}; run `python -m sf_flat_routes download`")
+            f"no DEM tiles in {DEM_DIR}; run `python -m sf_flat_routes download`"
+        )
 
     lon_min, lon_max, lat_min, lat_max = SF_BBOX
-    bounds = transform_bounds("EPSG:4326", CRS_PROJECTED,
-                              lon_min, lat_min, lon_max, lat_max)
+    bounds = transform_bounds("EPSG:4326", CRS_PROJECTED, lon_min, lat_min, lon_max, lat_max)
     # pad so that edge densification never samples outside the mosaic
     pad = 300.0
     bounds = (bounds[0] - pad, bounds[1] - pad, bounds[2] + pad, bounds[3] + pad)
@@ -87,31 +88,41 @@ def build_dem_mosaic(force: bool = False) -> Path:
     srcs = [rasterio.open(t) for t in tiles]
     try:
         with step(f"merging {len(srcs)} 1 m DEM tiles over the study area", log):
-            arr, transform = merge(srcs, bounds=bounds, res=(1.0, 1.0),
-                                   nodata=srcs[0].nodata)
+            arr, transform = merge(srcs, bounds=bounds, res=(1.0, 1.0), nodata=srcs[0].nodata)
         profile = srcs[0].profile.copy()
     finally:
         for s in srcs:
             s.close()
 
-    profile.update(height=arr.shape[1], width=arr.shape[2], transform=transform,
-                   count=1, dtype="float32", compress="lzw", tiled=True,
-                   blockxsize=512, blockysize=512, BIGTIFF="IF_SAFER")
+    profile.update(
+        height=arr.shape[1],
+        width=arr.shape[2],
+        transform=transform,
+        count=1,
+        dtype="float32",
+        compress="lzw",
+        tiled=True,
+        blockxsize=512,
+        blockysize=512,
+        BIGTIFF="IF_SAFER",
+    )
     DEM_MOSAIC.parent.mkdir(parents=True, exist_ok=True)
     tmp = DEM_MOSAIC.with_suffix(".part.tif")
     with rasterio.open(tmp, "w", **profile) as dst:
         dst.write(arr[0].astype("float32"), 1)
     tmp.replace(DEM_MOSAIC)
-    log.info("wrote %s  shape=%s  bounds=%s", DEM_MOSAIC.name, arr.shape[1:],
-             [round(b) for b in bounds])
+    log.info(
+        "wrote %s  shape=%s  bounds=%s", DEM_MOSAIC.name, arr.shape[1:], [round(b) for b in bounds]
+    )
     return DEM_MOSAIC
 
 
 class DemSampler:
     """In-memory, pre-smoothed DEM with bilinear point sampling."""
 
-    def __init__(self, path: Path = DEM_MOSAIC, sigma_m: float = DEM_SMOOTH_SIGMA_M,
-                 smooth: bool = True):
+    def __init__(
+        self, path: Path = DEM_MOSAIC, sigma_m: float = DEM_SMOOTH_SIGMA_M, smooth: bool = True
+    ):
         import rasterio
         from scipy.ndimage import gaussian_filter
 
@@ -136,8 +147,9 @@ class DemSampler:
                 data = gaussian_filter(data, sigma=sigma_px, mode="nearest")
         self.data = data
         self.sigma_m = sigma_m if smooth else 0.0
-        log.info("DEM sampler ready: %s cells, %.1f%% valid",
-                 f"{data.size:,}", 100.0 * self.valid.mean())
+        log.info(
+            "DEM sampler ready: %s cells, %.1f%% valid", f"{data.size:,}", 100.0 * self.valid.mean()
+        )
 
     # ---- sampling ----------------------------------------------------
     def _to_pixel(self, x: np.ndarray, y: np.ndarray):
@@ -164,8 +176,10 @@ class DemSampler:
         c0c = np.clip(c0, 0, w - 2)
 
         d = self.data
-        v00 = d[r0c, c0c]; v01 = d[r0c, c0c + 1]
-        v10 = d[r0c + 1, c0c]; v11 = d[r0c + 1, c0c + 1]
+        v00 = d[r0c, c0c]
+        v01 = d[r0c, c0c + 1]
+        v10 = d[r0c + 1, c0c]
+        v11 = d[r0c + 1, c0c + 1]
         top = v00 * (1 - fc) + v01 * fc
         bot = v10 * (1 - fc) + v11 * fc
         out = top * (1 - fr) + bot * fr
@@ -194,8 +208,9 @@ def densify(geom, spacing: float, min_samples: int):
 # --------------------------------------------------------------------------
 # structure (bridge/tunnel) elevation recovery
 # --------------------------------------------------------------------------
-def _solve_structure_nodes(edges, node_elev: dict, reliable: set,
-                           subset=None, label: str = "structure-only") -> dict:
+def _solve_structure_nodes(
+    edges, node_elev: dict, reliable: set, subset=None, label: str = "structure-only"
+) -> dict:
     """Laplace-smooth elevations for nodes with no usable DEM value.
 
     Nodes on a viaduct have no DEM-derived elevation worth using, and a
@@ -223,8 +238,11 @@ def _solve_structure_nodes(edges, node_elev: dict, reliable: set,
     for n in unknown:
         if not np.isfinite(est.get(n, np.nan)):
             est[n] = np.nan
-    seed = np.nanmean([v for n, v in est.items() if n in reliable and np.isfinite(v)]) \
-        if any(n in reliable and np.isfinite(v) for n, v in est.items()) else 0.0
+    seed = (
+        np.nanmean([v for n, v in est.items() if n in reliable and np.isfinite(v)])
+        if any(n in reliable and np.isfinite(v) for n, v in est.items())
+        else 0.0
+    )
     for n in unknown:
         if not np.isfinite(est[n]):
             est[n] = seed
@@ -255,17 +273,20 @@ def _solve_structure_nodes(edges, node_elev: dict, reliable: set,
 def compute_node_elevations(edges, sampler: DemSampler) -> tuple[dict, set]:
     """DEM elevation at every graph node, plus the set of reliable nodes."""
     import collections
+
     xs: dict[str, list[float]] = collections.defaultdict(list)
     ys: dict[str, list[float]] = collections.defaultdict(list)
     solid: set[str] = set()
 
-    for u, v, geom, is_struct in zip(edges["u"], edges["v"], edges.geometry,
-                                     edges["is_structure"]):
+    for u, v, geom, is_struct in zip(edges["u"], edges["v"], edges.geometry, edges["is_structure"]):
         c = geom.coords
-        xs[u].append(c[0][0]); ys[u].append(c[0][1])
-        xs[v].append(c[-1][0]); ys[v].append(c[-1][1])
+        xs[u].append(c[0][0])
+        ys[u].append(c[0][1])
+        xs[v].append(c[-1][0])
+        ys[v].append(c[-1][1])
         if not is_struct:
-            solid.add(u); solid.add(v)
+            solid.add(u)
+            solid.add(v)
 
     nodes = list(xs)
     px = np.array([np.mean(xs[n]) for n in nodes])
@@ -273,8 +294,11 @@ def compute_node_elevations(edges, sampler: DemSampler) -> tuple[dict, set]:
     z = sampler.sample(px, py)
     node_elev = {n: float(zz) for n, zz in zip(nodes, z)}
     reliable = {n for n in solid if np.isfinite(node_elev[n])}
-    log.info("node elevations: %d nodes, %d reliable (non-structure, valid DEM)",
-             len(nodes), len(reliable))
+    log.info(
+        "node elevations: %d nodes, %d reliable (non-structure, valid DEM)",
+        len(nodes),
+        len(reliable),
+    )
     return node_elev, reliable
 
 
@@ -284,6 +308,7 @@ def compute_node_elevations(edges, sampler: DemSampler) -> tuple[dict, set]:
 def _smooth_profile(z: np.ndarray, spacing: float) -> np.ndarray:
     """Savitzky-Golay along the profile where enough samples exist."""
     from scipy.signal import savgol_filter
+
     n = z.size
     if n < 5:
         return z
@@ -299,8 +324,9 @@ def _smooth_profile(z: np.ndarray, spacing: float) -> np.ndarray:
         return z
 
 
-def sample_edge_profiles(edges, sampler: DemSampler | None = None,
-                         force: bool = False) -> dict[int, tuple]:
+def sample_edge_profiles(
+    edges, sampler: DemSampler | None = None, force: bool = False
+) -> dict[int, tuple]:
     """Elevation profile for every edge, cached to ``edge_profiles.npz``.
 
     Returns ``{edge_id: (distance_along_m, elevation_m)}``.
@@ -311,8 +337,10 @@ def sample_edge_profiles(edges, sampler: DemSampler | None = None,
             offsets = npz["offsets"]
             dist = npz["dist"]
             elev = npz["elev"]
-        out = {int(e): (dist[offsets[i]:offsets[i + 1]], elev[offsets[i]:offsets[i + 1]])
-               for i, e in enumerate(ids)}
+        out = {
+            int(e): (dist[offsets[i] : offsets[i + 1]], elev[offsets[i] : offsets[i + 1]])
+            for i, e in enumerate(ids)
+        }
         log.info("cached %s (%d profiles)", PROFILES_NPZ.name, len(out))
         return out
 
@@ -323,8 +351,7 @@ def sample_edge_profiles(edges, sampler: DemSampler | None = None,
         node_elev, reliable = compute_node_elevations(edges, sampler)
     with step("recovering bridge/tunnel deck elevations", log):
         node_elev = _solve_structure_nodes(edges, node_elev, reliable)
-        reliable = reliable | {n for n in node_elev
-                               if np.isfinite(node_elev.get(n, np.nan))}
+        reliable = reliable | {n for n in node_elev if np.isfinite(node_elev.get(n, np.nan))}
     missing = [n for n in node_elev if not np.isfinite(node_elev.get(n, np.nan))]
     if missing:
         # A few nodes sit where the DEM has no data at all (piers over water,
@@ -332,28 +359,31 @@ def sample_edge_profiles(edges, sampler: DemSampler | None = None,
         # once put an 18 m footway 65 m below the street it joins. Solve them
         # from their neighbours over the whole graph instead.
         with step(f"recovering {len(missing)} nodes with no DEM coverage", log):
-            node_elev = _solve_structure_nodes(edges, node_elev, reliable,
-                                               subset=edges,
-                                               label="DEM-void")
+            node_elev = _solve_structure_nodes(
+                edges, node_elev, reliable, subset=edges, label="DEM-void"
+            )
 
     # one vectorised DEM read for all sample points
     with step("densifying edge geometries", log):
         all_dist, all_x, all_y, counts = [], [], [], []
-        for geom in progress(edges.geometry, desc="  densify", total=len(edges),
-                             unit="edge"):
+        for geom in progress(edges.geometry, desc="  densify", total=len(edges), unit="edge"):
             d, x, y = densify(geom, cfg.sample_spacing_m, cfg.min_samples)
-            all_dist.append(d); all_x.append(x); all_y.append(y)
+            all_dist.append(d)
+            all_x.append(x)
+            all_y.append(y)
             counts.append(d.size)
     counts = np.asarray(counts)
     offsets = np.concatenate([[0], np.cumsum(counts)]).astype(np.int64)
-    cat_x = np.concatenate(all_x); cat_y = np.concatenate(all_y)
+    cat_x = np.concatenate(all_x)
+    cat_y = np.concatenate(all_y)
     cat_dist = np.concatenate(all_dist)
     with step(f"sampling DEM at {cat_x.size:,} points", log):
         cat_z = sampler.sample(cat_x, cat_y)
 
     edge_ids = np.asarray(edges["edge_id"].values)
     is_struct = np.asarray(edges["is_structure"].values)
-    us = list(edges["u"]); vs = list(edges["v"])
+    us = list(edges["u"])
+    vs = list(edges["v"])
     row_of = {int(e): i for i, e in enumerate(edge_ids)}
 
     # Structure ramps, gap filling and smoothing are all applied to the
@@ -377,8 +407,11 @@ def sample_edge_profiles(edges, sampler: DemSampler | None = None,
             d = cat_dist[a:b].copy()
             z = cat_z[a:b].copy()
             if k > 0:
-                d = d[1:]; z = z[1:]
-            segs.append(base + d); zs.append(z); spans.append(d.size)
+                d = d[1:]
+                z = z[1:]
+            segs.append(base + d)
+            zs.append(z)
+            spans.append(d.size)
             base = segs[-1][-1] if segs[-1].size else base
         run_d = np.concatenate(segs)
         run_z = np.concatenate(zs)
@@ -411,11 +444,9 @@ def sample_edge_profiles(edges, sampler: DemSampler | None = None,
             if good.any():
                 run_z = np.interp(run_d, run_d[good], run_z[good])
             else:
-                ends = [node_elev.get(us[rows[0]], np.nan),
-                        node_elev.get(vs[rows[-1]], np.nan)]
+                ends = [node_elev.get(us[rows[0]], np.nan), node_elev.get(vs[rows[-1]], np.nan)]
                 if all(np.isfinite(ends)):
-                    frac = ((run_d - run_d[0])
-                            / max(run_d[-1] - run_d[0], 1e-9))
+                    frac = (run_d - run_d[0]) / max(run_d[-1] - run_d[0], 1e-9)
                     run_z = ends[0] + (ends[1] - ends[0]) * frac
                 else:
                     n_unresolved += len(rows)
@@ -431,12 +462,17 @@ def sample_edge_profiles(edges, sampler: DemSampler | None = None,
             out_dist[i] = (d - d[0]).astype("float32")
             out_elev[i] = run_z[lo:hi].astype("float32")
 
-    log.info("  linear ramp applied to %d structure edges; %d runs gap-filled",
-             n_struct_fixed, n_gapfilled)
+    log.info(
+        "  linear ramp applied to %d structure edges; %d runs gap-filled",
+        n_struct_fixed,
+        n_gapfilled,
+    )
     if n_unresolved:
-        log.warning("  %d edges have no recoverable elevation and carry NaN; "
-                    "they are excluded when the metrics table is built",
-                    n_unresolved)
+        log.warning(
+            "  %d edges have no recoverable elevation and carry NaN; "
+            "they are excluded when the metrics table is built",
+            n_unresolved,
+        )
 
     # ---- one elevation per intersection -------------------------------
     # Each street segment is smoothed independently, so two streets meeting
@@ -461,7 +497,8 @@ def sample_edge_profiles(edges, sampler: DemSampler | None = None,
             z = out_elev[i]
             if z is None or z.size < 2 or not np.all(np.isfinite(z)):
                 continue
-            z0 = canon.get(us[i]); z1 = canon.get(vs[i])
+            z0 = canon.get(us[i])
+            z1 = canon.get(vs[i])
             if z0 is None or z1 is None:
                 continue
             d = out_dist[i].astype("float64")
@@ -469,18 +506,22 @@ def sample_edge_profiles(edges, sampler: DemSampler | None = None,
             frac = (d - d[0]) / (span if span > 0 else 1.0)
             delta0 = z0 - float(z[0])
             delta1 = z1 - float(z[-1])
-            out_elev[i] = (z.astype("float64")
-                           + delta0 * (1.0 - frac) + delta1 * frac
-                           ).astype("float32")
+            out_elev[i] = (z.astype("float64") + delta0 * (1.0 - frac) + delta1 * frac).astype(
+                "float32"
+            )
             shifts.append(max(abs(delta0), abs(delta1)))
         if shifts:
             sh = np.asarray(shifts)
-            log.info("  node reconciliation shifted profile ends by "
-                     "%.3f m on average, %.2f m at worst (%d edges)",
-                     sh.mean(), sh.max(), sh.size)
+            log.info(
+                "  node reconciliation shifted profile ends by "
+                "%.3f m on average, %.2f m at worst (%d edges)",
+                sh.mean(),
+                sh.max(),
+                sh.size,
+            )
 
-    cat_d = np.concatenate(out_dist); cat_e = np.concatenate(out_elev)
-    np.savez_compressed(PROFILES_NPZ, edge_ids=edge_ids, offsets=offsets,
-                        dist=cat_d, elev=cat_e)
+    cat_d = np.concatenate(out_dist)
+    cat_e = np.concatenate(out_elev)
+    np.savez_compressed(PROFILES_NPZ, edge_ids=edge_ids, offsets=offsets, dist=cat_d, elev=cat_e)
     log.info("wrote %s", PROFILES_NPZ.name)
     return {int(e): (out_dist[i], out_elev[i]) for i, e in enumerate(edge_ids)}

@@ -1,4 +1,5 @@
 """The route page's offline place index."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -27,41 +28,53 @@ def test_core_strips_a_trailing_city_name():
 
 
 def test_support_counts_nearby_records_that_mention_the_name():
-    names = pd.Series(["Dolores Park", "Dolores Park Cafe", "Dolores Park Tennis",
-                       "Dolores Park", "Nowhere"])
+    names = pd.Series(
+        ["Dolores Park", "Dolores Park Cafe", "Dolores Park Tennis", "Dolores Park", "Nowhere"]
+    )
     lon = np.array([-122.427, -122.4265, -122.4275, -122.414, -122.5])
     lat = np.array([37.7596, 37.7600, 37.7593, 37.784, 37.7])
     sup = places._support(names, lon, lat, names, lon, lat)
-    assert sup[0] == 2          # the real park: two neighbours mention it
-    assert sup[3] == 0          # the stray copy across town: none
+    assert sup[0] == 2  # the real park: two neighbours mention it
+    assert sup[3] == 0  # the stray copy across town: none
 
 
 def test_variant_pruning_keeps_different_kinds_and_distant_namesakes():
-    df = pd.DataFrame({
-        "name": ["Dolores Park", "Dolores Park, San Francisco", "Dolores Park Cafe",
-                 "Golden Gate Park", "Golden Gate Park - East", "Golden Gate Park Carousel"],
-        "group": ["park", "park", "food", "park", "park", "landmark"],
-        "lon": [-122.427, -122.421, -122.4259, -122.482, -122.458, -122.458],
-        "lat": [37.7596, 37.7736, 37.7613, 37.7694, 37.7691, 37.7691],
-        "conf": [0.97, 0.72, 0.99, 0.98, 0.9, 0.9],
-        "support": [3, 0, 0, 5, 0, 0],
-    })
+    df = pd.DataFrame(
+        {
+            "name": [
+                "Dolores Park",
+                "Dolores Park, San Francisco",
+                "Dolores Park Cafe",
+                "Golden Gate Park",
+                "Golden Gate Park - East",
+                "Golden Gate Park Carousel",
+            ],
+            "group": ["park", "park", "food", "park", "park", "landmark"],
+            "lon": [-122.427, -122.421, -122.4259, -122.482, -122.458, -122.458],
+            "lat": [37.7596, 37.7736, 37.7613, 37.7694, 37.7691, 37.7691],
+            "conf": [0.97, 0.72, 0.99, 0.98, 0.9, 0.9],
+            "support": [3, 0, 0, 5, 0, 0],
+        }
+    )
     out = places._prune_variants(df)
     kept = set(out["name"])
     assert "Dolores Park" in kept
-    assert "Dolores Park, San Francisco" not in kept      # city suffix, any distance
-    assert "Dolores Park Cafe" in kept                    # a different kind of place
+    assert "Dolores Park, San Francisco" not in kept  # city suffix, any distance
+    assert "Dolores Park Cafe" in kept  # a different kind of place
     assert "Golden Gate Park" in kept
-    assert "Golden Gate Park Carousel" in kept            # different kind
-    assert "Golden Gate Park - East" not in kept          # same kind, unsupported variant
+    assert "Golden Gate Park Carousel" in kept  # different kind
+    assert "Golden Gate Park - East" not in kept  # same kind, unsupported variant
 
 
-needs_places = pytest.mark.skipif(not PLACES_PARQUET.exists(),
-                                  reason="Overture places not downloaded")
-needs_base = pytest.mark.skipif(not all(p.exists() for p in BASE_PARQUETS.values()),
-                                reason="Overture base theme not downloaded")
-needs_addresses = pytest.mark.skipif(not ADDRESSES_PARQUET.exists(),
-                                     reason="Overture addresses not downloaded")
+needs_places = pytest.mark.skipif(
+    not PLACES_PARQUET.exists(), reason="Overture places not downloaded"
+)
+needs_base = pytest.mark.skipif(
+    not all(p.exists() for p in BASE_PARQUETS.values()), reason="Overture base theme not downloaded"
+)
+needs_addresses = pytest.mark.skipif(
+    not ADDRESSES_PARQUET.exists(), reason="Overture addresses not downloaded"
+)
 
 
 @pytest.fixture(scope="module")
@@ -88,17 +101,21 @@ def test_place_index_is_compact_and_inside_the_city(index):
 def test_mapped_features_win_over_the_poi_feed(index):
     """The POI feed drops 'Dolores Park' in the Tenderloin and in Bayview;
     the mapped park is the only record that remains under that name."""
-    hits = {(n, index["groups"][g]): (lo, la) for n, g, lo, la in
-            zip(index["names"], index["group"], index["lon"], index["lat"])}
+    hits = {
+        (n, index["groups"][g]): (lo, la)
+        for n, g, lo, la in zip(index["names"], index["group"], index["lon"], index["lat"])
+    }
     assert ("Mission Dolores Park", "park") in hits
     lo, la = hits[("Mission Dolores Park", "park")]
     assert abs(lo + 122.427) < 0.003 and abs(la - 37.7596) < 0.003
     assert ("Dolores Park", "park") not in hits
     # famous things sit where they belong
-    for name, kind, lon, lat in [("Coit Tower", "viewpoint", -122.4058, 37.8024),
-                                 ("Pier 39", "pier", -122.4103, 37.8095),
-                                 ("Golden Gate Park", "park", -122.482, 37.769),
-                                 ("Ocean Beach", "beach", -122.510, 37.757)]:
+    for name, kind, lon, lat in [
+        ("Coit Tower", "viewpoint", -122.4058, 37.8024),
+        ("Pier 39", "pier", -122.4103, 37.8095),
+        ("Golden Gate Park", "park", -122.482, 37.769),
+        ("Ocean Beach", "beach", -122.510, 37.757),
+    ]:
         assert (name, kind) in hits, name
         lo, la = hits[(name, kind)]
         assert abs(lo - lon) < 0.004 and abs(la - lat) < 0.004, name

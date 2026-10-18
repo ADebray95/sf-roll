@@ -17,6 +17,7 @@ same cost model Python uses.
   JS, the gzipped graph and the hillshade as separate cacheable files),
   which GitHub Pages serves as the demo.
 """
+
 from __future__ import annotations
 
 import json
@@ -37,6 +38,7 @@ SITE_INDEX = SITE_DIR / "index.html"
 WEB_DIR = Path(__file__).resolve().parent / "web"
 VENDOR_DIR = Path(__file__).resolve().parent / "vendor"
 
+
 # --------------------------------------------------------------------------
 # layer preparation
 # --------------------------------------------------------------------------
@@ -47,12 +49,14 @@ def _round_geometry(geo: dict, ndigits: int = 5) -> dict:
     places is about 1 m at this latitude, which is finer than the source
     data's own accuracy, and shrinks the embedded GeoJSON several-fold.
     """
+
     def walk(c):
         if isinstance(c, (list, tuple)):
             if c and isinstance(c[0], (int, float)):
                 return [round(float(v), ndigits) for v in c[:2]]
             return [walk(x) for x in c]
         return c
+
     return {"type": geo["type"], "coordinates": walk(geo["coordinates"])}
 
 
@@ -78,8 +82,13 @@ def _geojson(gdf, props: list[str], simplify: float = 4.0) -> dict:
             elif v is not None and not isinstance(v, str):
                 v = str(v)
             p[c] = v
-        feats.append({"type": "Feature", "properties": p,
-                      "geometry": _round_geometry(r.geometry.__geo_interface__)})
+        feats.append(
+            {
+                "type": "Feature",
+                "properties": p,
+                "geometry": _round_geometry(r.geometry.__geo_interface__),
+            }
+        )
     return {"type": "FeatureCollection", "features": feats}
 
 
@@ -92,42 +101,75 @@ def build_layers(ctx, corridors, passes, barriers, basins):
     """
     edges = ctx.edges
     layers = {
-        "neighborhoods": _geojson(ctx.neighborhoods,
-                                  ["neighborhood", "area_km2"], simplify=12.0),
+        "neighborhoods": _geojson(ctx.neighborhoods, ["neighborhood", "area_km2"], simplify=12.0),
         "corridors": _geojson(
             corridors.to_crs(edges.crs) if corridors.crs != edges.crs else corridors,
-            ["corridor_id", "corridor_name", "street_names", "mode",
-             "length_km", "mean_abs_grade", "max_grade", "gain_per_km",
-             "pair_count_max", "neighborhood_span", "climb_saved_m",
-             "elev_min_m", "elev_max_m", "neighborhoods", "total_score"],
-            simplify=5.0),
+            [
+                "corridor_id",
+                "corridor_name",
+                "street_names",
+                "mode",
+                "length_km",
+                "mean_abs_grade",
+                "max_grade",
+                "gain_per_km",
+                "pair_count_max",
+                "neighborhood_span",
+                "climb_saved_m",
+                "elev_min_m",
+                "elev_max_m",
+                "neighborhoods",
+                "total_score",
+            ],
+            simplify=5.0,
+        ),
         "passes": _geojson(
             passes.to_crs(edges.crs) if passes.crs != edges.crs else passes,
-            ["edge_id", "name", "neighborhood", "pass_elev_m", "pass_elev_ft",
-             "pairs_served", "max_abs_grade", "neighborhoods_separated"],
-            simplify=2.0),
+            [
+                "edge_id",
+                "name",
+                "neighborhood",
+                "pass_elev_m",
+                "pass_elev_ft",
+                "pairs_served",
+                "max_abs_grade",
+                "neighborhoods_separated",
+            ],
+            simplify=2.0,
+        ),
         "barriers": _geojson(
-            (barriers.to_crs(edges.crs) if barriers.crs != edges.crs
-             else barriers).head(350),
-            ["edge_id", "name", "neighborhood", "max_abs_grade", "length_m",
-             "shortest_use", "flat_use_per_objective", "unavoidability"],
-            simplify=2.0),
+            (barriers.to_crs(edges.crs) if barriers.crs != edges.crs else barriers).head(350),
+            [
+                "edge_id",
+                "name",
+                "neighborhood",
+                "max_abs_grade",
+                "length_m",
+                "shortest_use",
+                "flat_use_per_objective",
+                "unavoidability",
+            ],
+            simplify=2.0,
+        ),
     }
     bike = edges[edges["bike_facility"].astype(bool) & (edges["bike_facility"] != "")]
     layers["bike_network"] = _geojson(
-        bike, ["name", "cls", "bike_facility", "length_m", "max_abs_grade"],
-        simplify=5.0)
-    carfree = edges[edges["cls"].isin(["pedestrian", "living_street"])
-                    | (edges["bike_facility"] == "car_free_street")]
+        bike, ["name", "cls", "bike_facility", "length_m", "max_abs_grade"], simplify=5.0
+    )
+    carfree = edges[
+        edges["cls"].isin(["pedestrian", "living_street"])
+        | (edges["bike_facility"] == "car_free_street")
+    ]
     layers["low_stress"] = _geojson(
-        carfree, ["name", "cls", "bike_facility", "length_m"], simplify=5.0)
+        carfree, ["name", "cls", "bike_facility", "length_m"], simplify=5.0
+    )
     if basins is not None and len(basins):
         b = basins.to_crs(edges.crs) if basins.crs != edges.crs else basins
-        agg = b.dissolve(by="basin", aggfunc={"basin_label": "first",
-                                              "length_m": "sum"}).reset_index()
+        agg = b.dissolve(
+            by="basin", aggfunc={"basin_label": "first", "length_m": "sum"}
+        ).reset_index()
         agg["length_km"] = agg["length_m"] / 1000.0
-        layers["basins"] = _geojson(agg, ["basin", "basin_label", "length_km"],
-                                    simplify=14.0)
+        layers["basins"] = _geojson(agg, ["basin", "basin_label", "length_km"], simplify=14.0)
     return layers
 
 
@@ -135,16 +177,23 @@ def build_layers(ctx, corridors, passes, barriers, basins):
 #: without anyone having to know which neighborhoods to pick. Notes are
 #: filled in from the analysis outputs at build time.
 _EXAMPLE_PAIRS = (
-    ("Mission", "Outer Sunset", "walk", "min_climb",
-     "crossing the city east to west"),
-    ("Noe Valley", "Financial District", "walk", "min_climb",
-     "almost all the climbing is optional"),
-    ("Bayview", "Golden Gate Park", "walk", "min_climb",
-     "the biggest single saving in the city"),
-    ("Mission", "Marina", "bike", "balanced",
-     "by bicycle, over the northern saddles"),
-    ("West of Twin Peaks", "Downtown/Civic Center", "walk", "grade_averse",
-     "behind the Twin Peaks barrier: no cheap way over"),
+    ("Mission", "Outer Sunset", "walk", "min_climb", "crossing the city east to west"),
+    (
+        "Noe Valley",
+        "Financial District",
+        "walk",
+        "min_climb",
+        "almost all the climbing is optional",
+    ),
+    ("Bayview", "Golden Gate Park", "walk", "min_climb", "the biggest single saving in the city"),
+    ("Mission", "Marina", "bike", "balanced", "by bicycle, over the northern saddles"),
+    (
+        "West of Twin Peaks",
+        "Downtown/Civic Center",
+        "walk",
+        "grade_averse",
+        "behind the Twin Peaks barrier: no cheap way over",
+    ),
 )
 
 
@@ -162,15 +211,20 @@ def _examples(points: dict) -> list[dict]:
             continue
         note = blurb
         if table is not None:
-            sel = table[(table["mode"] == mode) & (table["profile"] == prof)
-                        & (table["origin"] == o) & (table["destination"] == d)]
+            sel = table[
+                (table["mode"] == mode)
+                & (table["profile"] == prof)
+                & (table["origin"] == o)
+                & (table["destination"] == d)
+            ]
             if len(sel):
                 r = sel.iloc[0]
-                note = (f"{blurb} &mdash; "
-                        f"{r['shortest_gain_m']*3.28084:.0f} ft of climbing "
-                        f"becomes {r['elev_gain_m']*3.28084:.0f} ft")
-        out.append({"o": o, "d": d, "mode": mode, "profile": prof,
-                    "note": note})
+                note = (
+                    f"{blurb} &mdash; "
+                    f"{r['shortest_gain_m'] * 3.28084:.0f} ft of climbing "
+                    f"becomes {r['elev_gain_m'] * 3.28084:.0f} ft"
+                )
+        out.append({"o": o, "d": d, "mode": mode, "profile": prof, "note": note})
     return out
 
 
@@ -189,8 +243,9 @@ def _render(payload: dict) -> str:
     html = html.replace("/*__LEAFLET_CSS__*/", _vendor("leaflet-1.9.4.css"))
     html = html.replace("/*__APP_CSS__*/", _asset("app.css"))
     html = html.replace("/*__LEAFLET_JS__*/", _vendor("leaflet-1.9.4.min.js"))
-    html = html.replace("/*__APP_JS__*/", _asset("engine.js") + "\n" + _asset("app.js")
-                        + "\n" + _asset("warp.js"))
+    html = html.replace(
+        "/*__APP_JS__*/", _asset("engine.js") + "\n" + _asset("app.js") + "\n" + _asset("warp.js")
+    )
     return html.replace("/*__DATA__*/", json.dumps(payload, separators=(",", ":")))
 
 
@@ -202,39 +257,49 @@ def _route_page_html(payload: dict, linked: bool, assets: dict | None = None) ->
     html = _asset("simple.html").replace("/*__REPO_URL__*/", REPO_URL)
     if linked:
         a = assets or {}
-        html = html.replace('<style>/*__LEAFLET_CSS__*/</style>',
-                            f'<link rel="stylesheet" href="{a.get("leaflet.css", "leaflet.css")}">')
-        html = html.replace('<style>/*__APP_CSS__*/</style>',
-                            f'<link rel="stylesheet" href="{a.get("app.css", "app.css")}">')
-        html = html.replace('<script>/*__LEAFLET_JS__*/</script>',
-                            f'<script src="{a.get("leaflet.js", "leaflet.js")}"></script>')
-        html = html.replace('<script>/*__APP_JS__*/</script>',
-                            f'<script src="{a.get("app.js", "app.js")}"></script>')
-        extra = "\n".join([
-            f'<link rel="canonical" href="{SITE_URL}">',
-            '<link rel="icon" href="favicon.svg" type="image/svg+xml">',
-            '<meta property="og:type" content="website">',
-            f'<meta property="og:title" content="{PRODUCT_NAME}">',
-            '<meta property="og:site_name" content="Flatten SF">',
-            '<meta property="og:description" content="The flattest walking or '
-            'cycling route between any two places in San Francisco, and every '
-            'route between it and the shortest one.">',
-            f'<meta property="og:url" content="{SITE_URL}">',
-            f'<meta property="og:image" content="{SITE_URL}preview.jpg">',
-            f'<meta property="og:image:secure_url" content="{SITE_URL}preview.jpg">',
-            '<meta property="og:image:type" content="image/jpeg">',
-            '<meta property="og:image:width" content="1200">',
-            '<meta property="og:image:height" content="630">',
-            '<meta property="og:image:alt" content="A map of San Francisco with a fan of '
-            'walking routes between Trick Dog and the dragon in Golden Gate Park">',
-            '<meta name="twitter:card" content="summary_large_image">',
-            f'<meta name="twitter:title" content="{PRODUCT_NAME}">',
-            '<meta name="twitter:description" content="The flattest walking or cycling '
-            'route between any two places in San Francisco, and every route between '
-            'it and the shortest one.">',
-            f'<meta name="twitter:image" content="{SITE_URL}preview.jpg">',
-            f'<link rel="preload" href="{payload["bundle_url"]}" as="fetch" crossorigin>',
-        ])
+        html = html.replace(
+            "<style>/*__LEAFLET_CSS__*/</style>",
+            f'<link rel="stylesheet" href="{a.get("leaflet.css", "leaflet.css")}">',
+        )
+        html = html.replace(
+            "<style>/*__APP_CSS__*/</style>",
+            f'<link rel="stylesheet" href="{a.get("app.css", "app.css")}">',
+        )
+        html = html.replace(
+            "<script>/*__LEAFLET_JS__*/</script>",
+            f'<script src="{a.get("leaflet.js", "leaflet.js")}"></script>',
+        )
+        html = html.replace(
+            "<script>/*__APP_JS__*/</script>",
+            f'<script src="{a.get("app.js", "app.js")}"></script>',
+        )
+        extra = "\n".join(
+            [
+                f'<link rel="canonical" href="{SITE_URL}">',
+                '<link rel="icon" href="favicon.svg" type="image/svg+xml">',
+                '<meta property="og:type" content="website">',
+                f'<meta property="og:title" content="{PRODUCT_NAME}">',
+                '<meta property="og:site_name" content="Flatten SF">',
+                '<meta property="og:description" content="The flattest walking or '
+                "cycling route between any two places in San Francisco, and every "
+                'route between it and the shortest one.">',
+                f'<meta property="og:url" content="{SITE_URL}">',
+                f'<meta property="og:image" content="{SITE_URL}preview.jpg">',
+                f'<meta property="og:image:secure_url" content="{SITE_URL}preview.jpg">',
+                '<meta property="og:image:type" content="image/jpeg">',
+                '<meta property="og:image:width" content="1200">',
+                '<meta property="og:image:height" content="630">',
+                '<meta property="og:image:alt" content="A map of San Francisco with a fan of '
+                'walking routes between Trick Dog and the dragon in Golden Gate Park">',
+                '<meta name="twitter:card" content="summary_large_image">',
+                f'<meta name="twitter:title" content="{PRODUCT_NAME}">',
+                '<meta name="twitter:description" content="The flattest walking or cycling '
+                "route between any two places in San Francisco, and every route between "
+                'it and the shortest one.">',
+                f'<meta name="twitter:image" content="{SITE_URL}preview.jpg">',
+                f'<link rel="preload" href="{payload["bundle_url"]}" as="fetch" crossorigin>',
+            ]
+        )
         html = html.replace("<!--__HEAD_EXTRA__-->", extra)
     else:
         html = html.replace("<!--__HEAD_EXTRA__-->\n", "")
@@ -335,14 +400,19 @@ def _write_route_page(ctx, graph: dict, pts: dict) -> Path:
     with step("bundling the route page payload", log):
         packed = bundle(dict(graph, arrays=arrays), strings)
     common = {
-        "manifest": packed["manifest"], "meta": packed["meta"], "addr": addr_meta,
-        "labels": _labels(ctx), "default": _default_trip(places, pts),
+        "manifest": packed["manifest"],
+        "meta": packed["meta"],
+        "addr": addr_meta,
+        "labels": _labels(ctx),
+        "default": _default_trip(places, pts),
     }
 
     # one file that opens from disk: everything inline
-    inline = dict(common, bundle=packed["b64"],
-                  hillshade=hillshade and {"bounds": hillshade["bounds"],
-                                           "data_uri": hillshade["data_uri"]})
+    inline = dict(
+        common,
+        bundle=packed["b64"],
+        hillshade=hillshade and {"bounds": hillshade["bounds"], "data_uri": hillshade["data_uri"]},
+    )
     SIMPLE_HTML.write_text(_route_page_html(inline, linked=False), encoding="utf-8")
 
     # the static site: fetchable, cacheable files. Everything the page
@@ -378,8 +448,7 @@ def _write_route_page(ctx, graph: dict, pts: dict) -> Path:
         linked["hillshade"] = {"bounds": hillshade["bounds"], "url": "data/" + png_name}
     else:
         linked["hillshade"] = None
-    SITE_INDEX.write_text(_route_page_html(linked, linked=True, assets=assets),
-                          encoding="utf-8")
+    SITE_INDEX.write_text(_route_page_html(linked, linked=True, assets=assets), encoding="utf-8")
     for plain in ("app.css", "app.js", "leaflet.css", "leaflet.js"):
         (SITE_DIR / plain).unlink(missing_ok=True)
     (SITE_DIR / "favicon.svg").write_text(_FAVICON, encoding="utf-8")
@@ -388,13 +457,19 @@ def _write_route_page(ctx, graph: dict, pts: dict) -> Path:
     # from Settings -> Pages on Actions deploys; shipping it covers both
     (SITE_DIR / "CNAME").write_text(SITE_DOMAIN + "\n", encoding="utf-8")
     site_bytes = sum(f.stat().st_size for f in SITE_DIR.rglob("*") if f.is_file())
-    log.info("wrote %s (%s) and the site in %s (%s)", SIMPLE_HTML.name,
-             human_bytes(SIMPLE_HTML.stat().st_size), SITE_DIR.name, human_bytes(site_bytes))
+    log.info(
+        "wrote %s (%s) and the site in %s (%s)",
+        SIMPLE_HTML.name,
+        human_bytes(SIMPLE_HTML.stat().st_size),
+        SITE_DIR.name,
+        human_bytes(site_bytes),
+    )
     return SIMPLE_HTML
 
 
-def make_interactive_map(ctx, corridors, passes, barriers, pairs_df=None,
-                         arc_store=None, basins=None) -> Path:
+def make_interactive_map(
+    ctx, corridors, passes, barriers, pairs_df=None, arc_store=None, basins=None
+) -> Path:
     """Assemble and write the interactive map.
 
     ``pairs_df`` and ``arc_store`` are accepted for call-site compatibility
@@ -411,27 +486,33 @@ def make_interactive_map(ctx, corridors, passes, barriers, pairs_df=None,
     pts = {}
     for mode, gdf in ctx.points.items():
         g = gdf.to_crs("EPSG:4326")
-        pts[mode] = {r["neighborhood"]: [round(r.geometry.x, 6),
-                                         round(r.geometry.y, 6)]
-                     for _, r in g.iterrows()}
+        pts[mode] = {
+            r["neighborhood"]: [round(r.geometry.x, 6), round(r.geometry.y, 6)]
+            for _, r in g.iterrows()
+        }
     names = sorted(set(pts.get("walk", {})) | set(pts.get("bike", {})))
 
     with step("bundling and compressing the map payload", log):
-        packed = bundle(graph, {
-            "geom": graph["geom"],
-            "layers": json.dumps(layers, separators=(",", ":")),
-        })
+        packed = bundle(
+            graph,
+            {
+                "geom": graph["geom"],
+                "layers": json.dumps(layers, separators=(",", ":")),
+            },
+        )
     payload = {
-        "manifest": packed["manifest"], "bundle": packed["b64"],
-        "meta": packed["meta"], "points": pts, "neighborhood_names": names,
+        "manifest": packed["manifest"],
+        "bundle": packed["b64"],
+        "meta": packed["meta"],
+        "points": pts,
+        "neighborhood_names": names,
         "examples": _examples(pts),
     }
 
     with step("writing the explorer HTML", log):
         INTERACTIVE_HTML.parent.mkdir(parents=True, exist_ok=True)
         INTERACTIVE_HTML.write_text(_render(payload), encoding="utf-8")
-    log.info("wrote %s (%s)", INTERACTIVE_HTML.name,
-             human_bytes(INTERACTIVE_HTML.stat().st_size))
+    log.info("wrote %s (%s)", INTERACTIVE_HTML.name, human_bytes(INTERACTIVE_HTML.stat().st_size))
     with step("writing the route page", log):
         _write_route_page(ctx, graph, pts)
     return INTERACTIVE_HTML

@@ -3,6 +3,7 @@
 These are skipped automatically when the pipeline has not been run, so the
 unit suite stays runnable on a fresh clone.
 """
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -17,13 +18,15 @@ pytestmark = [
     pytest.mark.needs_data,
     pytest.mark.skipif(
         not (EDGES.exists() and DIRECTED.exists()),
-        reason="processed data not built; run `python -m sf_flat_routes all`"),
+        reason="processed data not built; run `python -m sf_flat_routes all`",
+    ),
 ]
 
 
 @pytest.fixture(scope="module")
 def edges():
     import geopandas as gpd
+
     return gpd.read_parquet(EDGES)
 
 
@@ -39,17 +42,15 @@ def test_every_edge_has_two_directions(edges, directed):
 
 
 def test_gain_and_loss_mirror_between_directions(directed):
-    piv = directed.pivot_table(index="edge_id", columns="direction",
-                               values=["cum_gain", "cum_loss"])
-    assert np.allclose(piv[("cum_gain", "fwd")], piv[("cum_loss", "rev")],
-                       atol=1e-6)
-    assert np.allclose(piv[("cum_loss", "fwd")], piv[("cum_gain", "rev")],
-                       atol=1e-6)
+    piv = directed.pivot_table(
+        index="edge_id", columns="direction", values=["cum_gain", "cum_loss"]
+    )
+    assert np.allclose(piv[("cum_gain", "fwd")], piv[("cum_loss", "rev")], atol=1e-6)
+    assert np.allclose(piv[("cum_loss", "fwd")], piv[("cum_gain", "rev")], atol=1e-6)
 
 
 def test_net_change_is_antisymmetric(directed):
-    piv = directed.pivot_table(index="edge_id", columns="direction",
-                               values="net_change")
+    piv = directed.pivot_table(index="edge_id", columns="direction", values="net_change")
     assert np.allclose(piv["fwd"], -piv["rev"], atol=1e-6)
 
 
@@ -62,6 +63,7 @@ def test_gain_minus_loss_equals_net_change(directed):
 
 def test_no_edge_exceeds_the_plausible_grade_clip(edges):
     from sf_flat_routes.config import ELEVATION
+
     assert edges["max_abs_grade"].max() <= ELEVATION.max_plausible_grade + 1e-9
 
 
@@ -100,9 +102,11 @@ def test_known_flat_and_steep_streets_are_correctly_separated(edges):
 
 
 def test_filbert_street_matches_its_documented_gradient(edges):
-    sub = edges[(edges["name"] == "Filbert Street")
-                & (edges["cls"] == "residential")
-                & (edges["length_m"] >= MIN_RELIABLE_GRADE_LENGTH_M)]
+    sub = edges[
+        (edges["name"] == "Filbert Street")
+        & (edges["cls"] == "residential")
+        & (edges["length_m"] >= MIN_RELIABLE_GRADE_LENGTH_M)
+    ]
     assert abs(sub["max_abs_grade"].max() - 0.315) < 0.05
 
 

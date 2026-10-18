@@ -1,4 +1,5 @@
 """Tests for map-output helpers."""
+
 import json
 
 import numpy as np
@@ -12,18 +13,20 @@ from sf_flat_routes.viz_static import hillshade
 
 
 def test_round_geometry_shortens_coordinates():
-    geo = {"type": "LineString",
-           "coordinates": [(-122.419421234567, 37.774931234567),
-                           (-122.425001234567, 37.778121234567)]}
+    geo = {
+        "type": "LineString",
+        "coordinates": [(-122.419421234567, 37.774931234567), (-122.425001234567, 37.778121234567)],
+    }
     r = _round_geometry(geo, 5)
     assert r["coordinates"][0] == [-122.41942, 37.77493]
     assert len(json.dumps(r)) < len(json.dumps(geo))
 
 
 def test_round_geometry_handles_multilinestring():
-    geo = {"type": "MultiLineString",
-           "coordinates": [[(-122.1234567, 37.1234567), (-122.2, 37.2)],
-                           [(-122.3, 37.3)]]}
+    geo = {
+        "type": "MultiLineString",
+        "coordinates": [[(-122.1234567, 37.1234567), (-122.2, 37.2)], [(-122.3, 37.3)]],
+    }
     r = _round_geometry(geo, 4)
     assert r["coordinates"][0][0] == [-122.1235, 37.1235]
     assert r["type"] == "MultiLineString"
@@ -43,7 +46,7 @@ def test_hillshade_is_bounded_and_flat_ground_is_uniform():
 
 
 def test_hillshade_distinguishes_slope_direction():
-    ramp = np.tile(np.arange(20.0), (20, 1))          # rises to the east
+    ramp = np.tile(np.arange(20.0), (20, 1))  # rises to the east
     hs = hillshade(ramp, res=1.0)
     other = hillshade(-ramp, res=1.0)
     assert not np.allclose(hs, other)

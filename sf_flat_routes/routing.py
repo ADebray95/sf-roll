@@ -39,6 +39,7 @@ on the *climbing* grade in the direction of travel, plus the class
 multipliers.  This keeps the cost function monotone in climbing, which the
 Pareto analysis relies on.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -57,8 +58,7 @@ _TH = [int(t * 100) for t in GRADE_THRESHOLDS]
 # --------------------------------------------------------------------------
 # cost computation
 # --------------------------------------------------------------------------
-def edge_costs(directed: pd.DataFrame, weights: CostWeights,
-               mode: str = "walk") -> np.ndarray:
+def edge_costs(directed: pd.DataFrame, weights: CostWeights, mode: str = "walk") -> np.ndarray:
     """Vectorised traversal cost, in equivalent metres, for every directed edge."""
     cfg = MODES[mode]
     length = directed["length_m"].to_numpy(dtype="float64")
@@ -80,8 +80,11 @@ def edge_costs(directed: pd.DataFrame, weights: CostWeights,
         cost = cost + weights.beta * pen
 
     if weights.gamma and weights.extreme_extra:
-        cost = cost + (weights.gamma * weights.extreme_extra
-                       * directed[f"d_above_{_TH[-1]}"].to_numpy(dtype="float64"))
+        cost = cost + (
+            weights.gamma
+            * weights.extreme_extra
+            * directed[f"d_above_{_TH[-1]}"].to_numpy(dtype="float64")
+        )
 
     return np.maximum(cost, 1e-6)
 
@@ -101,14 +104,15 @@ class RouteGraph:
     and for each cost vector the cheapest arc in each group is selected, so
     the matrix holds a true minimum and the winning arc is recoverable.
     """
+
     mode: str
-    node_ids: np.ndarray                  # index -> node id
-    node_index: dict                      # node id -> index
-    table: pd.DataFrame                   # directed arcs, positional order
-    arc_pair: np.ndarray                  # arc -> pair index
-    pair_from: np.ndarray                 # pair -> tail node index
-    pair_to: np.ndarray                   # pair -> head node index
-    pair_lookup: dict                     # (tail, head) -> pair index
+    node_ids: np.ndarray  # index -> node id
+    node_index: dict  # node id -> index
+    table: pd.DataFrame  # directed arcs, positional order
+    arc_pair: np.ndarray  # arc -> pair index
+    pair_from: np.ndarray  # pair -> tail node index
+    pair_to: np.ndarray  # pair -> head node index
+    pair_lookup: dict  # (tail, head) -> pair index
 
     @property
     def n_nodes(self) -> int:
@@ -137,9 +141,11 @@ class RouteGraph:
     def matrix(self, arc_cost: np.ndarray):
         """CSR cost matrix plus the arc chosen for each retained pair."""
         import scipy.sparse as sp
+
         best, winner = self.pair_costs(arc_cost)
-        m = sp.csr_matrix((best, (self.pair_from, self.pair_to)),
-                          shape=(self.n_nodes, self.n_nodes))
+        m = sp.csr_matrix(
+            (best, (self.pair_from, self.pair_to)), shape=(self.n_nodes, self.n_nodes)
+        )
         return m, winner
 
     def index_of(self, node_id):
@@ -157,24 +163,26 @@ def build_route_graph(directed: pd.DataFrame, mode: str = "walk") -> RouteGraph:
         raise RuntimeError(f"no traversable directed edges for mode {mode!r}")
 
     def _index(frame):
-        nodes = pd.unique(pd.concat([frame["from_node"], frame["to_node"]],
-                                    ignore_index=True))
+        nodes = pd.unique(pd.concat([frame["from_node"], frame["to_node"]], ignore_index=True))
         return nodes, {n: i for i, n in enumerate(nodes)}
 
     nodes, node_index = _index(sub)
     fi = sub["from_node"].map(node_index).to_numpy(dtype=np.int64)
     ti = sub["to_node"].map(node_index).to_numpy(dtype=np.int64)
-    adj = sp.coo_matrix((np.ones(len(fi)), (fi, ti)),
-                        shape=(len(nodes), len(nodes))).tocsr()
-    ncomp, labels = sp.csgraph.connected_components(adj, directed=True,
-                                                    connection="strong")
+    adj = sp.coo_matrix((np.ones(len(fi)), (fi, ti)), shape=(len(nodes), len(nodes))).tocsr()
+    ncomp, labels = sp.csgraph.connected_components(adj, directed=True, connection="strong")
     if ncomp > 1:
         biggest = int(np.bincount(labels).argmax())
         keep = labels == biggest
         mask = keep[fi] & keep[ti]
-        log.info("mode %s: largest strongly connected component keeps "
-                 "%d/%d nodes and %d/%d arcs", mode, int(keep.sum()),
-                 len(nodes), int(mask.sum()), len(fi))
+        log.info(
+            "mode %s: largest strongly connected component keeps %d/%d nodes and %d/%d arcs",
+            mode,
+            int(keep.sum()),
+            len(nodes),
+            int(mask.sum()),
+            len(fi),
+        )
         sub = sub[mask].reset_index(drop=True)
         nodes, node_index = _index(sub)
         fi = sub["from_node"].map(node_index).to_numpy(dtype=np.int64)
@@ -185,25 +193,34 @@ def build_route_graph(directed: pd.DataFrame, mode: str = "walk") -> RouteGraph:
     uniq, arc_pair = np.unique(key, return_inverse=True)
     pair_from = (uniq // len(nodes)).astype(np.int64)
     pair_to = (uniq % len(nodes)).astype(np.int64)
-    pair_lookup = {(int(a), int(b)): i for i, (a, b) in
-                   enumerate(zip(pair_from, pair_to))}
+    pair_lookup = {(int(a), int(b)): i for i, (a, b) in enumerate(zip(pair_from, pair_to))}
 
-    g = RouteGraph(mode=mode, node_ids=np.asarray(nodes), node_index=node_index,
-                   table=sub, arc_pair=arc_pair.astype(np.int64),
-                   pair_from=pair_from, pair_to=pair_to,
-                   pair_lookup=pair_lookup)
+    g = RouteGraph(
+        mode=mode,
+        node_ids=np.asarray(nodes),
+        node_index=node_index,
+        table=sub,
+        arc_pair=arc_pair.astype(np.int64),
+        pair_from=pair_from,
+        pair_to=pair_to,
+        pair_lookup=pair_lookup,
+    )
     n_parallel = len(arc_pair) - len(uniq)
-    log.info("mode %s graph: %d nodes, %d arcs (%d parallel), %.0f km",
-             mode, g.n_nodes, g.n_arcs, n_parallel,
-             sub["length_m"].sum() / 1000)
+    log.info(
+        "mode %s graph: %d nodes, %d arcs (%d parallel), %.0f km",
+        mode,
+        g.n_nodes,
+        g.n_arcs,
+        n_parallel,
+        sub["length_m"].sum() / 1000,
+    )
     return g
 
 
 # --------------------------------------------------------------------------
 # shortest paths
 # --------------------------------------------------------------------------
-def shortest_paths(graph: RouteGraph, arc_cost: np.ndarray, sources,
-                   targets=None):
+def shortest_paths(graph: RouteGraph, arc_cost: np.ndarray, sources, targets=None):
     """Multi-source Dijkstra. Returns (dist, predecessors, winner_arc).
 
     ``dist`` and ``predecessors`` are (n_sources, n_nodes) as returned by
@@ -213,17 +230,16 @@ def shortest_paths(graph: RouteGraph, arc_cost: np.ndarray, sources,
 
     m, winner = graph.matrix(arc_cost)
     src = np.atleast_1d(np.asarray(sources, dtype=np.int64))
-    dist, pred = sp_dijkstra(m, directed=True, indices=src,
-                             return_predecessors=True)
+    dist, pred = sp_dijkstra(m, directed=True, indices=src, return_predecessors=True)
     if dist.ndim == 1:
         dist = dist[None, :]
         pred = pred[None, :]
     return dist, pred, winner
 
 
-def arcs_from_predecessors(graph: RouteGraph, pred_row: np.ndarray,
-                           winner: np.ndarray, source: int,
-                           target: int) -> list[int]:
+def arcs_from_predecessors(
+    graph: RouteGraph, pred_row: np.ndarray, winner: np.ndarray, source: int, target: int
+) -> list[int]:
     """Rebuild the arc sequence of one path from a scipy predecessor row."""
     if source == target:
         return []
@@ -233,11 +249,11 @@ def arcs_from_predecessors(graph: RouteGraph, pred_row: np.ndarray,
     while v != source:
         p = int(pred_row[v])
         if p < 0:
-            return []                       # unreachable
+            return []  # unreachable
         path_nodes.append(p)
         v = p
         guard += 1
-        if guard > graph.n_nodes + 5:       # pathological safety net
+        if guard > graph.n_nodes + 5:  # pathological safety net
             return []
     path_nodes.reverse()
 
@@ -250,8 +266,13 @@ def arcs_from_predecessors(graph: RouteGraph, pred_row: np.ndarray,
     return arcs
 
 
-def route(graph: RouteGraph, source_node, target_node, weights: CostWeights,
-          arc_cost: np.ndarray | None = None):
+def route(
+    graph: RouteGraph,
+    source_node,
+    target_node,
+    weights: CostWeights,
+    arc_cost: np.ndarray | None = None,
+):
     """Route between two node ids under one cost profile. Returns (arcs, summary)."""
     si = graph.index_of(source_node)
     ti = graph.index_of(target_node)
@@ -269,10 +290,16 @@ def route(graph: RouteGraph, source_node, target_node, weights: CostWeights,
 def summarise_route(graph: RouteGraph, arcs: list[int]) -> dict:
     """Aggregate metrics for a route given as a list of arc indices."""
     if not arcs:
-        return {"n_edges": 0, "distance_m": 0.0, "elev_gain_m": 0.0,
-                "elev_loss_m": 0.0, "max_grade": 0.0, "net_change_m": 0.0,
-                "avg_abs_grade": 0.0,
-                **{f"d_above_{t}": 0.0 for t in _TH}}
+        return {
+            "n_edges": 0,
+            "distance_m": 0.0,
+            "elev_gain_m": 0.0,
+            "elev_loss_m": 0.0,
+            "max_grade": 0.0,
+            "net_change_m": 0.0,
+            "avg_abs_grade": 0.0,
+            **{f"d_above_{t}": 0.0 for t in _TH},
+        }
     t = graph.table.iloc[arcs]
     length = t["length_m"].to_numpy(dtype="float64")
     total = float(length.sum())
@@ -286,8 +313,7 @@ def summarise_route(graph: RouteGraph, arcs: list[int]) -> dict:
         "max_grade": float(t["max_grade"].max()),
         "max_abs_grade_any": float(t["max_grade"].abs().max()),
         "avg_abs_grade": float((mean_abs * length).sum() / total) if total else 0.0,
-        "p95_grade": float(np.percentile(t["p95_grade"].to_numpy(), 95))
-        if len(t) else 0.0,
+        "p95_grade": float(np.percentile(t["p95_grade"].to_numpy(), 95)) if len(t) else 0.0,
         "start_elev_m": float(t["start_elev"].iloc[0]),
         "end_elev_m": float(t["end_elev"].iloc[-1]),
     }
@@ -329,15 +355,15 @@ def route_profile(graph: RouteGraph, arcs: list[int], profiles: dict):
     base = 0.0
     for eid, direction in zip(t["edge_id"], t["direction"]):
         d, z = profiles[int(eid)]
-        d = np.asarray(d, dtype="float64"); z = np.asarray(z, dtype="float64")
+        d = np.asarray(d, dtype="float64")
+        z = np.asarray(z, dtype="float64")
         if direction == "rev":
             d = d[-1] - d[::-1]
             z = z[::-1]
         if dists:
-            d = d[1:]; z = z[1:]
+            d = d[1:]
+            z = z[1:]
         dists.append(base + d)
         elevs.append(z)
         base = dists[-1][-1] if dists[-1].size else base
     return np.concatenate(dists), np.concatenate(elevs)
-
-

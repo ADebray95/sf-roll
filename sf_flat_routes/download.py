@@ -11,6 +11,7 @@ read the 128 footers (cheap, a couple of range requests each), keep only the
 row groups whose bounding box intersects San Francisco, and read just those.
 In practice 7 row groups in a single file cover the city.
 """
+
 from __future__ import annotations
 
 import xml.etree.ElementTree as ET
@@ -34,17 +35,29 @@ CONNECTORS_PARQUET = RAW_DIR / "overture_connectors_sf.parquet"
 PLACES_PARQUET = RAW_DIR / "overture_places_sf.parquet"
 ADDRESSES_PARQUET = RAW_DIR / "overture_addresses_sf.parquet"
 #: Overture base theme (OpenStreetMap): mapped parks, schools, stations...
-BASE_PARQUETS = {typ: RAW_DIR / f"overture_{typ}_sf.parquet"
-                 for typ in ("land_use", "infrastructure", "land")}
+BASE_PARQUETS = {
+    typ: RAW_DIR / f"overture_{typ}_sf.parquet" for typ in ("land_use", "infrastructure", "land")
+}
 NEIGHBORHOODS_GEOJSON = RAW_DIR / "sf_neighborhoods.geojson"
 DEM_13_TIF = RAW_DIR / "dem_13_n38w123.tif"
 
 #: Columns pulled from the Overture segment table. Everything unused is left
 #: on the server -- the nested route/destination columns are large.
 SEGMENT_COLUMNS = [
-    "id", "names", "subtype", "class", "subclass", "connectors",
-    "road_flags", "access_restrictions", "road_surface", "speed_limits",
-    "level_rules", "geometry", "bbox", "sources",
+    "id",
+    "names",
+    "subtype",
+    "class",
+    "subclass",
+    "connectors",
+    "road_flags",
+    "access_restrictions",
+    "road_surface",
+    "speed_limits",
+    "level_rules",
+    "geometry",
+    "bbox",
+    "sources",
 ]
 CONNECTOR_COLUMNS = ["id", "geometry", "bbox"]
 PLACE_COLUMNS = ["id", "names", "categories", "confidence", "geometry", "bbox"]
@@ -77,8 +90,7 @@ def _list_s3_keys(bucket: str, prefix: str, suffix: str = ".parquet") -> list[st
     return keys
 
 
-def _download_file(url: str, dest: Path, force: bool = False,
-                   retries: int = 5) -> Path:
+def _download_file(url: str, dest: Path, force: bool = False, retries: int = 5) -> Path:
     """Stream a URL to disk with retries and an atomic rename."""
     if dest.exists() and not force:
         log.info("cached %s (%s)", dest.name, human_bytes(dest.stat().st_size))
@@ -93,10 +105,12 @@ def _download_file(url: str, dest: Path, force: bool = False,
                 total = int(r.headers.get("Content-Length") or 0)
                 written = 0
                 with open(tmp, "wb") as fh:
-                    bar = progress(r.iter_content(chunk_size=1 << 20),
-                                   desc=f"  {dest.name}",
-                                   total=(total >> 20) + 1 if total else None,
-                                   unit="MB")
+                    bar = progress(
+                        r.iter_content(chunk_size=1 << 20),
+                        desc=f"  {dest.name}",
+                        total=(total >> 20) + 1 if total else None,
+                        unit="MB",
+                    )
                     for chunk in bar:
                         fh.write(chunk)
                         written += len(chunk)
@@ -110,8 +124,15 @@ def _download_file(url: str, dest: Path, force: bool = False,
             if attempt == retries:
                 raise
             import time
-            log.warning("attempt %d/%d for %s failed (%s); retrying in %.0fs",
-                        attempt, retries, dest.name, exc, delay)
+
+            log.warning(
+                "attempt %d/%d for %s failed (%s); retrying in %.0fs",
+                attempt,
+                retries,
+                dest.name,
+                exc,
+                delay,
+            )
             time.sleep(delay)
             delay *= 2
     raise RuntimeError("unreachable")
@@ -121,8 +142,9 @@ def _download_file(url: str, dest: Path, force: bool = False,
 # Overture
 # --------------------------------------------------------------------------
 def _bbox_stat_columns(metadata) -> dict[str, int]:
-    cols = {c["path_in_schema"]: i
-            for i, c in enumerate(metadata.row_group(0).to_dict()["columns"])}
+    cols = {
+        c["path_in_schema"]: i for i, c in enumerate(metadata.row_group(0).to_dict()["columns"])
+    }
     return {k: cols[k] for k in ("bbox.xmin", "bbox.xmax", "bbox.ymin", "bbox.ymax")}
 
 
@@ -141,9 +163,14 @@ def _matching_row_groups(metadata, bbox) -> list[int]:
     return out
 
 
-def _read_overture_type(overture_type: str, columns: list[str], dest: Path,
-                        bbox=SF_BBOX, force: bool = False,
-                        prefix: str = sources.OVERTURE_PREFIX) -> Path:
+def _read_overture_type(
+    overture_type: str,
+    columns: list[str],
+    dest: Path,
+    bbox=SF_BBOX,
+    force: bool = False,
+    prefix: str = sources.OVERTURE_PREFIX,
+) -> Path:
     """Row-group-pruned read of one Overture type (any theme)."""
     import fsspec
     import pyarrow as pa
@@ -154,8 +181,12 @@ def _read_overture_type(overture_type: str, columns: list[str], dest: Path,
         return dest
 
     keys = _list_s3_keys(sources.OVERTURE_BUCKET, f"{prefix}/type={overture_type}/")
-    log.info("overture %s: %d parquet files in release %s",
-             overture_type, len(keys), sources.OVERTURE_RELEASE)
+    log.info(
+        "overture %s: %d parquet files in release %s",
+        overture_type,
+        len(keys),
+        sources.OVERTURE_RELEASE,
+    )
 
     fs = fsspec.filesystem("https")
 
@@ -170,8 +201,9 @@ def _read_overture_type(overture_type: str, columns: list[str], dest: Path,
             scanned = list(pool.map(scan, keys))
     hits = [(k, rgs) for k, rgs in scanned if rgs]
     n_rg = sum(len(r) for _, r in hits)
-    log.info("overture %s: %d row group(s) in %d file(s) intersect SF",
-             overture_type, n_rg, len(hits))
+    log.info(
+        "overture %s: %d row group(s) in %d file(s) intersect SF", overture_type, n_rg, len(hits)
+    )
     if not hits:
         raise RuntimeError(f"no Overture {overture_type} row groups intersect {bbox}")
 
@@ -185,14 +217,14 @@ def _read_overture_type(overture_type: str, columns: list[str], dest: Path,
 
     # Row groups are coarse; clip precisely to the study bbox.
     bb = table.column("bbox").combine_chunks()
-    xmin = np.asarray(bb.field("xmin")); xmax = np.asarray(bb.field("xmax"))
-    ymin = np.asarray(bb.field("ymin")); ymax = np.asarray(bb.field("ymax"))
+    xmin = np.asarray(bb.field("xmin"))
+    xmax = np.asarray(bb.field("xmax"))
+    ymin = np.asarray(bb.field("ymin"))
+    ymax = np.asarray(bb.field("ymax"))
     lon_min, lon_max, lat_min, lat_max = bbox
-    keep = ((xmax >= lon_min) & (xmin <= lon_max)
-            & (ymax >= lat_min) & (ymin <= lat_max))
+    keep = (xmax >= lon_min) & (xmin <= lon_max) & (ymax >= lat_min) & (ymin <= lat_max)
     table = table.filter(pa.array(keep))
-    log.info("overture %s: %d features inside the study bbox", overture_type,
-             table.num_rows)
+    log.info("overture %s: %d features inside the study bbox", overture_type, table.num_rows)
 
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(".part")
@@ -204,8 +236,7 @@ def _read_overture_type(overture_type: str, columns: list[str], dest: Path,
 
 def download_street_network(force: bool = False) -> tuple[Path, Path]:
     seg = _read_overture_type("segment", SEGMENT_COLUMNS, SEGMENTS_PARQUET, force=force)
-    con = _read_overture_type("connector", CONNECTOR_COLUMNS, CONNECTORS_PARQUET,
-                              force=force)
+    con = _read_overture_type("connector", CONNECTOR_COLUMNS, CONNECTORS_PARQUET, force=force)
     return seg, con
 
 
@@ -215,13 +246,20 @@ def download_places(force: bool = False) -> tuple[Path, Path]:
     Neither is needed by the analysis; the route page degrades to
     intersection-only search when they are missing.
     """
-    places = _read_overture_type("place", PLACE_COLUMNS, PLACES_PARQUET,
-                                 force=force, prefix=sources.OVERTURE_PLACES_PREFIX)
-    addrs = _read_overture_type("address", ADDRESS_COLUMNS, ADDRESSES_PARQUET,
-                                force=force, prefix=sources.OVERTURE_ADDRESSES_PREFIX)
+    places = _read_overture_type(
+        "place", PLACE_COLUMNS, PLACES_PARQUET, force=force, prefix=sources.OVERTURE_PLACES_PREFIX
+    )
+    addrs = _read_overture_type(
+        "address",
+        ADDRESS_COLUMNS,
+        ADDRESSES_PARQUET,
+        force=force,
+        prefix=sources.OVERTURE_ADDRESSES_PREFIX,
+    )
     for typ, dest in BASE_PARQUETS.items():
-        _read_overture_type(typ, BASE_COLUMNS, dest, force=force,
-                            prefix=sources.OVERTURE_BASE_PREFIX)
+        _read_overture_type(
+            typ, BASE_COLUMNS, dest, force=force, prefix=sources.OVERTURE_BASE_PREFIX
+        )
     return places, addrs
 
 
@@ -263,8 +301,11 @@ def download_all(force: bool = False) -> dict[str, object]:
         try:
             out["places"], out["addresses"] = download_places(force=force)
         except Exception as exc:  # optional: the route page can do without
-            log.warning("places/addresses unavailable (%s); the route page "
-                        "will offer intersection search only", exc)
+            log.warning(
+                "places/addresses unavailable (%s); the route page "
+                "will offer intersection search only",
+                exc,
+            )
     with step("downloading USGS 3DEP elevation", log):
         out["dem"] = download_dem(force=force)
     return out

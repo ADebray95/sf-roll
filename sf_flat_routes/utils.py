@@ -1,4 +1,5 @@
 """Small shared helpers: logging, progress reporting and cache bookkeeping."""
+
 from __future__ import annotations
 
 import json
@@ -43,16 +44,24 @@ def step(message: str, logger: logging.Logger | None = None) -> Iterator[None]:
         log.info("%s done in %.1fs", message, time.perf_counter() - t0)
 
 
-def progress(iterable: Iterable[T], desc: str = "", total: int | None = None,
-             unit: str = "it") -> Iterable[T]:
+def progress(
+    iterable: Iterable[T], desc: str = "", total: int | None = None, unit: str = "it"
+) -> Iterable[T]:
     """tqdm progress bar that degrades gracefully when tqdm is absent."""
     try:
         from tqdm.auto import tqdm
     except ImportError:  # pragma: no cover
         return iterable
     disable = not sys.stderr.isatty() and not os.environ.get("SFFR_FORCE_PROGRESS")
-    return tqdm(iterable, desc=desc, total=total, unit=unit,
-                disable=disable, mininterval=2.0, dynamic_ncols=True)
+    return tqdm(
+        iterable,
+        desc=desc,
+        total=total,
+        unit=unit,
+        disable=disable,
+        mininterval=2.0,
+        dynamic_ncols=True,
+    )
 
 
 def human_bytes(n: float) -> str:

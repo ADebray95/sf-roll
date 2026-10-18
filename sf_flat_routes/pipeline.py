@@ -1,4 +1,5 @@
 """Orchestration: assemble cached artefacts and run each analysis stage."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -13,12 +14,13 @@ log = get_logger("sf_flat_routes.pipeline")
 @dataclass
 class Context:
     """Everything the analysis stages need, loaded from cache where possible."""
-    edges: object                  # undirected GeoDataFrame with metrics
-    directed: pd.DataFrame         # directed edge table
-    profiles: dict                 # edge_id -> (dist, elev)
+
+    edges: object  # undirected GeoDataFrame with metrics
+    directed: pd.DataFrame  # directed edge table
+    profiles: dict  # edge_id -> (dist, elev)
     neighborhoods: object
-    graphs: dict                   # mode -> RouteGraph
-    points: dict                   # mode -> representative points GeoDataFrame
+    graphs: dict  # mode -> RouteGraph
+    points: dict  # mode -> representative points GeoDataFrame
 
 
 def build_context(modes=("walk", "bike"), force: bool = False) -> Context:
@@ -43,10 +45,16 @@ def build_context(modes=("walk", "bike"), force: bool = False) -> Context:
     for mode in modes:
         graphs[mode] = build_route_graph(directed, mode)
         points[mode] = choose_representative_points(
-            edges, neighborhoods, mode=mode,
-            valid_nodes=graphs[mode].node_ids, force=True)
-    return Context(edges=edges, directed=directed, profiles=prof,
-                   neighborhoods=neighborhoods, graphs=graphs, points=points)
+            edges, neighborhoods, mode=mode, valid_nodes=graphs[mode].node_ids, force=True
+        )
+    return Context(
+        edges=edges,
+        directed=directed,
+        profiles=prof,
+        neighborhoods=neighborhoods,
+        graphs=graphs,
+        points=points,
+    )
 
 
 def run_analysis(ctx: Context, force: bool = False):
@@ -65,12 +73,25 @@ def run_analysis(ctx: Context, force: bool = False):
         pareto = run_pareto(ctx.graphs, ctx.points, all_pairs, force=force)
     with step("corridor detection", log):
         corridors, scores = run_corridor_analysis(
-            ctx.graphs, arc_store, pairs, ctx.edges, ctx.neighborhoods,
-            force=force)
+            ctx.graphs, arc_store, pairs, ctx.edges, ctx.neighborhoods, force=force
+        )
     with step("pass and barrier analysis", log):
         passes, barriers, basins = run_pass_analysis(
-            ctx.graphs, arc_store, ctx.edges, ctx.directed, ctx.neighborhoods,
-            points=ctx.points["walk"], force=force)
-    return {"pairs": pairs, "arc_store": arc_store, "pareto": pareto,
-            "corridors": corridors, "edge_scores": scores, "passes": passes,
-            "barriers": barriers, "basins": basins}
+            ctx.graphs,
+            arc_store,
+            ctx.edges,
+            ctx.directed,
+            ctx.neighborhoods,
+            points=ctx.points["walk"],
+            force=force,
+        )
+    return {
+        "pairs": pairs,
+        "arc_store": arc_store,
+        "pareto": pareto,
+        "corridors": corridors,
+        "edge_scores": scores,
+        "passes": passes,
+        "barriers": barriers,
+        "basins": basins,
+    }

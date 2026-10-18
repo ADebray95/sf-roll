@@ -1,12 +1,19 @@
 """Tests for the elevation metrics: grade, cumulative gain, percentiles."""
+
 import numpy as np
 import pytest
 
 from sf_flat_routes.config import ELEVATION, GRADE_THRESHOLDS
-from sf_flat_routes.metrics import (cumulative_gain_loss, deadband_filter,
-                                    directional_metrics, distance_above,
-                                    interval_grades, prune_reversal_indices,
-                                    rectify_profile, weighted_percentile)
+from sf_flat_routes.metrics import (
+    cumulative_gain_loss,
+    deadband_filter,
+    directional_metrics,
+    distance_above,
+    interval_grades,
+    prune_reversal_indices,
+    rectify_profile,
+    weighted_percentile,
+)
 
 DB = ELEVATION.gain_deadband_m
 
@@ -14,15 +21,15 @@ DB = ELEVATION.gain_deadband_m
 # ---------------------------------------------------------------- grades
 def test_grade_of_constant_slope():
     dist = np.arange(0, 101, 5.0)
-    elev = dist * 0.08                       # a clean 8% ramp
+    elev = dist * 0.08  # a clean 8% ramp
     g, L = interval_grades(dist, elev)
     assert np.allclose(g, 0.08)
     assert L.sum() == pytest.approx(100.0)
 
 
 def test_grade_sign_follows_direction_of_travel():
-    dist = np.arange(0, 51, 10.0)               # 10 m stations
-    elev = np.arange(0, 6) * 1.0                # 1 m per station => 10%
+    dist = np.arange(0, 51, 10.0)  # 10 m stations
+    elev = np.arange(0, 6) * 1.0  # 1 m per station => 10%
     g, _ = interval_grades(dist, elev)
     assert np.allclose(g, 0.10)
     g_rev, _ = interval_grades(dist, elev[::-1])
@@ -74,8 +81,8 @@ def test_gain_of_split_climb_equals_gain_of_whole_climb():
     elev = np.linspace(0, 200, dist.size)
     rect = rectify_profile(dist, elev, DB)
     total = 0.0
-    for k in range(0, rect.size - 1, 4):            # 4-sample "edges"
-        seg = rect[k:k + 5]
+    for k in range(0, rect.size - 1, 4):  # 4-sample "edges"
+        seg = rect[k : k + 5]
         d = np.diff(seg)
         total += d[d > 0].sum()
     assert total == pytest.approx(200.0, abs=1e-6)
@@ -126,7 +133,7 @@ def test_backlash_filter_is_monotone_and_bounded():
 # ----------------------------------------------------- distance above grade
 def test_distance_above_threshold_is_directional():
     dist = np.array([0.0, 100.0, 200.0])
-    elev = np.array([0.0, 10.0, 10.0])       # 10% then flat
+    elev = np.array([0.0, 10.0, 10.0])  # 10% then flat
     g, L = interval_grades(dist, elev)
     assert distance_above(g, L, 0.05) == pytest.approx(100.0)
     # travelling the other way it is a descent, so nothing is *climbed*
@@ -138,7 +145,7 @@ def test_distance_above_threshold_is_directional():
 
 def test_distance_above_thresholds_are_nested():
     dist = np.arange(0, 301, 100.0)
-    elev = np.array([0.0, 4.0, 13.0, 33.0])   # 4%, 9%, 20%
+    elev = np.array([0.0, 4.0, 13.0, 33.0])  # 4%, 9%, 20%
     g, L = interval_grades(dist, elev)
     vals = [distance_above(g, L, t) for t in GRADE_THRESHOLDS]
     assert vals == sorted(vals, reverse=True)
@@ -178,7 +185,7 @@ def test_directional_average_grade_flips_sign():
 
 def test_max_grade_is_the_steepest_climb_in_that_direction():
     dist = np.array([0.0, 100.0, 200.0])
-    elev = np.array([0.0, 12.0, 8.0])         # climb 12%, descend 4%
+    elev = np.array([0.0, 12.0, 8.0])  # climb 12%, descend 4%
     m = directional_metrics(dist, elev)
     assert m["fwd"]["max_grade"] == pytest.approx(0.12)
     assert m["rev"]["max_grade"] == pytest.approx(0.04)

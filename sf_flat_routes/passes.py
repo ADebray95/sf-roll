@@ -30,6 +30,7 @@ inter-neighborhood traffic because no flatter alternative exists.  A street
 with a high grade *and* high usage is a genuine wall in the city's
 topography; a steep street nobody routes over is merely steep.
 """
+
 from __future__ import annotations
 
 import collections
@@ -64,9 +65,9 @@ BASIN_MIN_KM = 2.0
 def node_elevations(directed: pd.DataFrame) -> pd.Series:
     """Elevation per graph node, from the structure-corrected edge profiles."""
     a = directed[["from_node", "start_elev"]].rename(
-        columns={"from_node": "node", "start_elev": "z"})
-    b = directed[["to_node", "end_elev"]].rename(
-        columns={"to_node": "node", "end_elev": "z"})
+        columns={"from_node": "node", "start_elev": "z"}
+    )
+    b = directed[["to_node", "end_elev"]].rename(columns={"to_node": "node", "end_elev": "z"})
     both = pd.concat([a, b], ignore_index=True)
     return both.groupby("node")["z"].median()
 
@@ -103,8 +104,13 @@ class _DSU:
 # --------------------------------------------------------------------------
 # basins
 # --------------------------------------------------------------------------
-def find_basins(edges, node_z: pd.Series, threshold: float = BASIN_ELEV_M,
-                min_km: float = BASIN_MIN_KM, mode: str = "walk"):
+def find_basins(
+    edges,
+    node_z: pd.Series,
+    threshold: float = BASIN_ELEV_M,
+    min_km: float = BASIN_MIN_KM,
+    mode: str = "walk",
+):
     """Connected lowland components of the network below ``threshold``."""
     import networkx as nx
 
@@ -130,8 +136,12 @@ def find_basins(edges, node_z: pd.Series, threshold: float = BASIN_ELEV_M,
             labels[n] = bid
         basins[bid] = {"n_nodes": len(comp), "length_km": km}
         bid += 1
-    log.info("lowland basins below %.0f m: %d districts (>= %.1f km of street)",
-             threshold, len(basins), min_km)
+    log.info(
+        "lowland basins below %.0f m: %d districts (>= %.1f km of street)",
+        threshold,
+        len(basins),
+        min_km,
+    )
     return labels, basins
 
 
@@ -143,15 +153,15 @@ def name_basins(labels: dict, edges, neighborhoods, node_z: pd.Series):
     sub["basin"] = sub["u"].map(labels)
     sub = sub[sub["basin"].notna()]
     mid = sub.geometry.interpolate(0.5, normalized=True)
-    pts = gpd.GeoDataFrame({"basin": sub["basin"].astype(int).values,
-                            "length_m": sub["length_m"].values},
-                           geometry=mid.values, crs=edges.crs)
-    j = gpd.sjoin(pts, neighborhoods[["neighborhood", "geometry"]],
-                  how="left", predicate="within")
+    pts = gpd.GeoDataFrame(
+        {"basin": sub["basin"].astype(int).values, "length_m": sub["length_m"].values},
+        geometry=mid.values,
+        crs=edges.crs,
+    )
+    j = gpd.sjoin(pts, neighborhoods[["neighborhood", "geometry"]], how="left", predicate="within")
     out = {}
     for b, grp in j.groupby("basin"):
-        top = (grp.groupby("neighborhood")["length_m"].sum()
-               .sort_values(ascending=False))
+        top = grp.groupby("neighborhood")["length_m"].sum().sort_values(ascending=False)
         out[int(b)] = {
             "label": " / ".join(top.head(3).index.tolist()),
             "neighborhoods": "; ".join(sorted(top[top > 200].index.tolist())),
@@ -163,8 +173,7 @@ def name_basins(labels: dict, edges, neighborhoods, node_z: pd.Series):
 # --------------------------------------------------------------------------
 # pass tree
 # --------------------------------------------------------------------------
-def find_passes(edges, node_z: pd.Series, basin_labels: dict,
-                mode: str = "walk"):
+def find_passes(edges, node_z: pd.Series, basin_labels: dict, mode: str = "walk"):
     """Minimum bottleneck spanning tree over basins -> the city's passes.
 
     Returns one record per pass: the crest elevation at which two groups of
@@ -207,33 +216,35 @@ def find_passes(edges, node_z: pd.Series, basin_labels: dict,
             comp_basins.pop(child, None)
             # a pass exists only where two *different* basin groups join
             if sa and sb and not (sa & sb):
-                passes.append({
-                    "edge_id": int(eid[k]),
-                    "pass_elev_m": float(crest[k]),
-                    "basins_a": sorted(sa),
-                    "basins_b": sorted(sb),
-                    "n_basins_joined": len(sa) + len(sb),
-                })
+                passes.append(
+                    {
+                        "edge_id": int(eid[k]),
+                        "pass_elev_m": float(crest[k]),
+                        "basins_a": sorted(sa),
+                        "basins_b": sorted(sb),
+                        "n_basins_joined": len(sa) + len(sb),
+                    }
+                )
     log.info("  %d passes found linking the lowland districts", len(passes))
     return pd.DataFrame(passes)
 
 
-def describe_passes(passes: pd.DataFrame, edges, neighborhoods,
-                    basin_names: dict):
+def describe_passes(passes: pd.DataFrame, edges, neighborhoods, basin_names: dict):
     """Attach geometry, street name, neighborhood and basin labels."""
     import geopandas as gpd
 
     if passes.empty:
-        return gpd.GeoDataFrame(columns=["edge_id", "geometry"],
-                                geometry="geometry", crs=edges.crs)
+        return gpd.GeoDataFrame(columns=["edge_id", "geometry"], geometry="geometry", crs=edges.crs)
     e = edges.set_index("edge_id")
-    keep = [c for c in ["name", "cls", "length_m", "max_abs_grade", "elev_min",
-                        "elev_max", "geometry"] if c in e.columns]
+    keep = [
+        c
+        for c in ["name", "cls", "length_m", "max_abs_grade", "elev_min", "elev_max", "geometry"]
+        if c in e.columns
+    ]
     df = passes.join(e[keep], on="edge_id")
 
     def label(bs):
-        return " + ".join(basin_names.get(int(b), {}).get("label", f"basin {b}")
-                          for b in bs)
+        return " + ".join(basin_names.get(int(b), {}).get("label", f"basin {b}") for b in bs)
 
     df["side_a"] = df["basins_a"].apply(label)
     df["side_b"] = df["basins_b"].apply(label)
@@ -243,13 +254,10 @@ def describe_passes(passes: pd.DataFrame, edges, neighborhoods,
     gdf = gpd.GeoDataFrame(df, geometry="geometry", crs=edges.crs)
     mid = gdf.geometry.interpolate(0.5, normalized=True)
     pt = gpd.GeoDataFrame(geometry=mid.values, crs=edges.crs)
-    j = gpd.sjoin(pt, neighborhoods[["neighborhood", "geometry"]], how="left",
-                  predicate="within")
-    gdf["neighborhood"] = j["neighborhood"].to_numpy()[:len(gdf)]
+    j = gpd.sjoin(pt, neighborhoods[["neighborhood", "geometry"]], how="left", predicate="within")
+    gdf["neighborhood"] = j["neighborhood"].to_numpy()[: len(gdf)]
     gdf["pass_elev_ft"] = gdf["pass_elev_m"] * 3.28084
     return gdf.sort_values("pass_elev_m").reset_index(drop=True)
-
-
 
 
 # --------------------------------------------------------------------------
@@ -276,7 +284,7 @@ def build_bottleneck_tree(edges, mode: str = "walk"):
     parent_tree = np.full(2 * n, -1, dtype=np.int64)
     label = np.full(2 * n, -np.inf)
     tree_edge = np.full(2 * n, -1, dtype=np.int64)
-    comp_root = np.arange(n, dtype=np.int64)      # DSU root -> tree node
+    comp_root = np.arange(n, dtype=np.int64)  # DSU root -> tree node
     dsu = _DSU(n)
     next_node = n
 
@@ -292,7 +300,8 @@ def build_bottleneck_tree(edges, mode: str = "walk"):
             if ra == rb:
                 continue
             ta, tb = int(comp_root[ra]), int(comp_root[rb])
-            t = next_node; next_node += 1
+            t = next_node
+            next_node += 1
             parent_tree[ta] = t
             parent_tree[tb] = t
             label[t] = float(crest[k])
@@ -301,9 +310,13 @@ def build_bottleneck_tree(edges, mode: str = "walk"):
             root, child = merged
             comp_root[root] = t
     log.info("  merge tree: %d leaves, %d internal nodes", n, next_node - n)
-    return {"nidx": nidx, "parent": parent_tree[:next_node],
-            "label": label[:next_node], "edge": tree_edge[:next_node],
-            "n_leaves": n}
+    return {
+        "nidx": nidx,
+        "parent": parent_tree[:next_node],
+        "label": label[:next_node],
+        "edge": tree_edge[:next_node],
+        "n_leaves": n,
+    }
 
 
 def _ancestors(tree, leaf: int) -> dict[int, int]:
@@ -351,9 +364,15 @@ def neighborhood_pass_matrix(tree, points: pd.DataFrame):
                 if r is None:
                     continue
                 h, e = r
-                rows.append({"neighborhood_a": names[i], "neighborhood_b": names[j],
-                             "pass_elev_m": h, "pass_elev_ft": h * 3.28084,
-                             "pass_edge_id": e})
+                rows.append(
+                    {
+                        "neighborhood_a": names[i],
+                        "neighborhood_b": names[j],
+                        "pass_elev_m": h,
+                        "pass_elev_ft": h * 3.28084,
+                        "pass_edge_id": e,
+                    }
+                )
     return pd.DataFrame(rows)
 
 
@@ -366,40 +385,50 @@ def rank_critical_passes(pass_matrix: pd.DataFrame, edges, neighborhoods):
     import geopandas as gpd
 
     if pass_matrix.empty:
-        return gpd.GeoDataFrame(columns=["edge_id", "geometry"],
-                                geometry="geometry", crs=edges.crs)
-    agg = (pass_matrix.groupby("pass_edge_id")
-           .agg(pairs_served=("pass_elev_m", "size"),
-                pass_elev_m=("pass_elev_m", "first"))
-           .reset_index().rename(columns={"pass_edge_id": "edge_id"}))
+        return gpd.GeoDataFrame(columns=["edge_id", "geometry"], geometry="geometry", crs=edges.crs)
+    agg = (
+        pass_matrix.groupby("pass_edge_id")
+        .agg(pairs_served=("pass_elev_m", "size"), pass_elev_m=("pass_elev_m", "first"))
+        .reset_index()
+        .rename(columns={"pass_edge_id": "edge_id"})
+    )
     # which neighborhoods sit on each side
-    sides = (pass_matrix.groupby("pass_edge_id")
-             .apply(lambda g: "; ".join(sorted(set(g["neighborhood_a"])
-                                               | set(g["neighborhood_b"]))),
-                    include_groups=False)
-             .rename("neighborhoods_separated"))
+    sides = (
+        pass_matrix.groupby("pass_edge_id")
+        .apply(
+            lambda g: "; ".join(sorted(set(g["neighborhood_a"]) | set(g["neighborhood_b"]))),
+            include_groups=False,
+        )
+        .rename("neighborhoods_separated")
+    )
     agg = agg.merge(sides, left_on="edge_id", right_index=True, how="left")
 
     e = edges.set_index("edge_id")
-    cols = [c for c in ["name", "cls", "length_m", "max_abs_grade", "elev_min",
-                        "elev_max", "geometry"] if c in e.columns]
+    cols = [
+        c
+        for c in ["name", "cls", "length_m", "max_abs_grade", "elev_min", "elev_max", "geometry"]
+        if c in e.columns
+    ]
     agg = agg.join(e[cols], on="edge_id")
     agg["pass_elev_ft"] = agg["pass_elev_m"] * 3.28084
     gdf = gpd.GeoDataFrame(agg, geometry="geometry", crs=edges.crs)
     mid = gdf.geometry.interpolate(0.5, normalized=True)
-    j = gpd.sjoin(gpd.GeoDataFrame(geometry=mid.values, crs=edges.crs),
-                  neighborhoods[["neighborhood", "geometry"]], how="left",
-                  predicate="within")
-    gdf["neighborhood"] = j["neighborhood"].to_numpy()[:len(gdf)]
+    j = gpd.sjoin(
+        gpd.GeoDataFrame(geometry=mid.values, crs=edges.crs),
+        neighborhoods[["neighborhood", "geometry"]],
+        how="left",
+        predicate="within",
+    )
+    gdf["neighborhood"] = j["neighborhood"].to_numpy()[: len(gdf)]
     return gdf.sort_values("pairs_served", ascending=False).reset_index(drop=True)
-
 
 
 # --------------------------------------------------------------------------
 # barriers
 # --------------------------------------------------------------------------
-def find_barriers(graph, arc_store: dict, edges, neighborhoods,
-                  min_grade: float = 0.08, profile: str = "shortest"):
+def find_barriers(
+    graph, arc_store: dict, edges, neighborhoods, min_grade: float = 0.08, profile: str = "shortest"
+):
     """Steep edges that inter-neighborhood traffic cannot avoid.
 
     Usage is counted on the **shortest**-path routes, because those describe
@@ -430,33 +459,42 @@ def find_barriers(graph, arc_store: dict, edges, neighborhoods,
     n_flat_profiles = len({p for (p, _o, _d) in arc_store if p != profile}) or 1
     steep["flat_use_per_objective"] = steep["flat_use"] / n_flat_profiles
     # a barrier is unavoidable to the extent flat routes still have to use it
-    steep["unavoidability"] = (steep["flat_use_per_objective"]
-                               / steep["shortest_use"].clip(lower=1)).clip(0, 1)
-    steep["barrier_score"] = (steep["shortest_use"]
-                              * steep["max_abs_grade"]
-                              * steep["length_m"] / 100.0)
+    steep["unavoidability"] = (
+        steep["flat_use_per_objective"] / steep["shortest_use"].clip(lower=1)
+    ).clip(0, 1)
+    steep["barrier_score"] = (
+        steep["shortest_use"] * steep["max_abs_grade"] * steep["length_m"] / 100.0
+    )
     steep = steep.sort_values("barrier_score", ascending=False)
 
     gdf = gpd.GeoDataFrame(steep, geometry="geometry", crs=edges.crs)
     mid = gdf.geometry.interpolate(0.5, normalized=True)
-    j = gpd.sjoin(gpd.GeoDataFrame(geometry=mid.values, crs=edges.crs),
-                  neighborhoods[["neighborhood", "geometry"]], how="left",
-                  predicate="within")
-    gdf["neighborhood"] = j["neighborhood"].to_numpy()[:len(gdf)]
-    log.info("barriers: %d steep edges (>=%.0f%%) carry shortest-path traffic",
-             len(gdf), min_grade * 100)
+    j = gpd.sjoin(
+        gpd.GeoDataFrame(geometry=mid.values, crs=edges.crs),
+        neighborhoods[["neighborhood", "geometry"]],
+        how="left",
+        predicate="within",
+    )
+    gdf["neighborhood"] = j["neighborhood"].to_numpy()[: len(gdf)]
+    log.info(
+        "barriers: %d steep edges (>=%.0f%%) carry shortest-path traffic", len(gdf), min_grade * 100
+    )
     return gdf
 
 
-def run_pass_analysis(graphs: dict, arc_store: dict, edges, directed,
-                      neighborhoods, points=None, force: bool = False):
+def run_pass_analysis(
+    graphs: dict, arc_store: dict, edges, directed, neighborhoods, points=None, force: bool = False
+):
     """Full pass/barrier/basin pipeline (walking network)."""
     import geopandas as gpd
 
     if PASSES_GEOJSON.exists() and BARRIERS_GEOJSON.exists() and not force:
         log.info("cached passes and barriers")
-        return (gpd.read_file(PASSES_GEOJSON), gpd.read_file(BARRIERS_GEOJSON),
-                gpd.read_file(BASINS_GEOJSON) if BASINS_GEOJSON.exists() else None)
+        return (
+            gpd.read_file(PASSES_GEOJSON),
+            gpd.read_file(BARRIERS_GEOJSON),
+            gpd.read_file(BASINS_GEOJSON) if BASINS_GEOJSON.exists() else None,
+        )
 
     node_z = node_elevations(directed)
 
@@ -464,39 +502,47 @@ def run_pass_analysis(graphs: dict, arc_store: dict, edges, directed,
     labels, basins = find_basins(edges, node_z, mode="walk")
     basin_names = name_basins(labels, edges, neighborhoods, node_z)
     for b, info in sorted(basins.items()):
-        log.info("  basin %-2d %-46s %6.1f km of street", b,
-                 basin_names.get(b, {}).get("label", "?"), info["length_km"])
+        log.info(
+            "  basin %-2d %-46s %6.1f km of street",
+            b,
+            basin_names.get(b, {}).get("label", "?"),
+            info["length_km"],
+        )
 
     # --- minimax passes between every neighborhood pair ---
     tree = build_bottleneck_tree(edges, mode="walk")
-    pass_matrix = neighborhood_pass_matrix(tree, points) if points is not None \
-        else pd.DataFrame()
+    pass_matrix = neighborhood_pass_matrix(tree, points) if points is not None else pd.DataFrame()
     passes_gdf = rank_critical_passes(pass_matrix, edges, neighborhoods)
     if not pass_matrix.empty:
         pass_matrix.to_csv(OUTPUT_DIR / "pass_matrix.csv", index=False)
-        log.info("  %d distinct critical passes over %d neighborhood pairs",
-                 len(passes_gdf), len(pass_matrix))
+        log.info(
+            "  %d distinct critical passes over %d neighborhood pairs",
+            len(passes_gdf),
+            len(pass_matrix),
+        )
 
     # --- basin-to-basin passes (kept as a coarser summary) ---
     basin_passes = find_passes(edges, node_z, labels, mode="walk")
     if not basin_passes.empty:
-        describe_passes(basin_passes, edges, neighborhoods, basin_names) \
-            .drop(columns=["geometry"]).to_csv(
-                OUTPUT_DIR / "basin_passes.csv", index=False)
+        describe_passes(basin_passes, edges, neighborhoods, basin_names).drop(
+            columns=["geometry"]
+        ).to_csv(OUTPUT_DIR / "basin_passes.csv", index=False)
 
-    barriers = find_barriers(graphs["walk"], arc_store["walk"], edges,
-                             neighborhoods)
+    barriers = find_barriers(graphs["walk"], arc_store["walk"], edges, neighborhoods)
 
     sub = edges[edges["u"].map(labels).notna()].copy()
     sub["basin"] = sub["u"].map(labels).astype("Int64")
     basins_gdf = gpd.GeoDataFrame(
-        sub[["basin", "name", "length_m", "geometry"]], geometry="geometry",
-        crs=edges.crs)
+        sub[["basin", "name", "length_m", "geometry"]], geometry="geometry", crs=edges.crs
+    )
     basins_gdf["basin_label"] = basins_gdf["basin"].map(
-        lambda b: basin_names.get(int(b), {}).get("label", "") if pd.notna(b) else "")
+        lambda b: basin_names.get(int(b), {}).get("label", "") if pd.notna(b) else ""
+    )
 
-    for gdf, gj, csv in ((passes_gdf, PASSES_GEOJSON, PASSES_CSV),
-                         (barriers.head(400), BARRIERS_GEOJSON, BARRIERS_CSV)):
+    for gdf, gj, csv in (
+        (passes_gdf, PASSES_GEOJSON, PASSES_CSV),
+        (barriers.head(400), BARRIERS_GEOJSON, BARRIERS_CSV),
+    ):
         if len(gdf):
             gdf.to_crs("EPSG:4326").to_file(gj, driver="GeoJSON")
             gdf.drop(columns=["geometry"]).to_csv(csv, index=False)
