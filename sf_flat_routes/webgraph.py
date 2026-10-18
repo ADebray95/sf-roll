@@ -100,7 +100,9 @@ def encode_polyline(coords, precision: int = 5) -> str:
 
 
 # --------------------------------------------------------------------------
-def _mode_availability(directed: pd.DataFrame, mode: str, node_index: dict) -> np.ndarray:
+def _mode_availability(
+    directed: pd.DataFrame, mode: str, node_index: dict
+) -> tuple[np.ndarray, np.ndarray]:
     """Per-arc availability for a mode, matching ``build_route_graph``.
 
     Includes the restriction to the largest strongly connected component, so

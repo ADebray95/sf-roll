@@ -242,7 +242,7 @@ def pareto_for_pairs(
     )
 
     keep_rows = []
-    for (_m, _o, _d), grp in df.groupby(["mode", "origin", "destination"]):
+    for _key, grp in df.groupby(["mode", "origin", "destination"]):
         obj = grp[["distance_m", "elev_gain_m", "max_grade"]].to_numpy(float)
         mask = _non_dominated(obj)
         g = grp.copy()

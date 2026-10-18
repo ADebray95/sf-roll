@@ -80,7 +80,7 @@ def _list_s3_keys(bucket: str, prefix: str, suffix: str = ".parquet") -> list[st
         r.raise_for_status()
         root = ET.fromstring(r.text)
         for c in root.findall("s3:Contents", _S3_NS):
-            key = c.find("s3:Key", _S3_NS).text
+            key = c.findtext("s3:Key", default="", namespaces=_S3_NS)
             if key.endswith(suffix):
                 keys.append(key)
         if root.findtext("s3:IsTruncated", default="false", namespaces=_S3_NS) == "true":

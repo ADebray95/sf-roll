@@ -7,7 +7,7 @@ import logging
 import os
 import sys
 import time
-from collections.abc import Iterable, Iterator
+from collections.abc import Generator, Iterable
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -31,7 +31,7 @@ def get_logger(name: str) -> logging.Logger:
 
 
 @contextmanager
-def step(message: str, logger: logging.Logger | None = None) -> Iterator[None]:
+def step(message: str, logger: logging.Logger | None = None) -> Generator[None]:
     """Log the start and wall-clock duration of an expensive stage."""
     log = logger or logging.getLogger("sf_flat_routes")
     log.info("%s ...", message)

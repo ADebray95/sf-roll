@@ -69,3 +69,6 @@ ban-relative-imports = "all"
 
 [tool.ty.environment]
 python-version = "3.13"
+
+[tool.ty.src]
+exclude = ["notebooks"]

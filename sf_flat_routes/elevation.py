@@ -396,8 +396,8 @@ def sample_edge_profiles(
     # propagate into the climbing figures.
     from sf_flat_routes.metrics import contiguous_runs
 
-    out_dist: list[np.ndarray] = [None] * len(edge_ids)
-    out_elev: list[np.ndarray] = [None] * len(edge_ids)
+    out_dist: list[np.ndarray | None] = [None] * len(edge_ids)
+    out_elev: list[np.ndarray | None] = [None] * len(edge_ids)
     n_struct_fixed = n_gapfilled = n_unresolved = 0
 
     runs = contiguous_runs(edges)
@@ -488,22 +488,23 @@ def sample_edge_profiles(
     with step("reconciling elevations at intersections", log):
         acc: dict[str, list[float]] = {}
         for i in range(len(edge_ids)):
-            if out_elev[i] is None or not np.all(np.isfinite(out_elev[i])):
+            z = out_elev[i]
+            if z is None or not np.all(np.isfinite(z)):
                 continue
-            acc.setdefault(us[i], []).append(float(out_elev[i][0]))
-            acc.setdefault(vs[i], []).append(float(out_elev[i][-1]))
+            acc.setdefault(us[i], []).append(float(z[0]))
+            acc.setdefault(vs[i], []).append(float(z[-1]))
         canon = {n: float(np.mean(v)) for n, v in acc.items()}
 
         shifts = []
         for i in range(len(edge_ids)):
-            z = out_elev[i]
-            if z is None or z.size < 2 or not np.all(np.isfinite(z)):
+            z, d = out_elev[i], out_dist[i]
+            if z is None or d is None or z.size < 2 or not np.all(np.isfinite(z)):
                 continue
             z0 = canon.get(us[i])
             z1 = canon.get(vs[i])
             if z0 is None or z1 is None:
                 continue
-            d = out_dist[i].astype("float64")
+            d = d.astype("float64")
             span = d[-1] - d[0]
             frac = (d - d[0]) / (span if span > 0 else 1.0)
             delta0 = z0 - float(z[0])
@@ -522,8 +523,14 @@ def sample_edge_profiles(
                 sh.size,
             )
 
-    cat_d = np.concatenate(out_dist)
-    cat_e = np.concatenate(out_elev)
+    dists = [d for d in out_dist if d is not None]
+    elevs = [z for z in out_elev if z is not None]
+    if len(dists) != len(edge_ids) or len(elevs) != len(edge_ids):
+        raise RuntimeError(
+            f"{len(edge_ids) - min(len(dists), len(elevs))} edges have no elevation profile"
+        )
+    cat_d = np.concatenate(dists)
+    cat_e = np.concatenate(elevs)
     np.savez_compressed(PROFILES_NPZ, edge_ids=edge_ids, offsets=offsets, dist=cat_d, elev=cat_e)
     log.info("wrote %s", PROFILES_NPZ.name)
     return {int(e): (out_dist[i], out_elev[i]) for i, e in enumerate(edge_ids)}

@@ -3,8 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import pandas as pd
+
+if TYPE_CHECKING:
+    import geopandas as gpd
+
+    from sf_flat_routes.routing import RouteGraph
 
 from sf_flat_routes.utils import configure_gdal_for_proxy, get_logger, step
 
@@ -15,12 +21,12 @@ log = get_logger("sf_flat_routes.pipeline")
 class Context:
     """Everything the analysis stages need, loaded from cache where possible."""
 
-    edges: object  # undirected GeoDataFrame with metrics
+    edges: gpd.GeoDataFrame  # undirected, with metrics
     directed: pd.DataFrame  # directed edge table
     profiles: dict  # edge_id -> (dist, elev)
-    neighborhoods: object
-    graphs: dict  # mode -> RouteGraph
-    points: dict  # mode -> representative points GeoDataFrame
+    neighborhoods: gpd.GeoDataFrame
+    graphs: dict[str, RouteGraph]  # by mode
+    points: dict[str, gpd.GeoDataFrame]  # representative points, by mode
 
 
 def build_context(modes=("walk", "bike"), force: bool = False) -> Context:

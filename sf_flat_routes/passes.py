@@ -307,6 +307,7 @@ def build_bottleneck_tree(edges, mode: str = "walk"):
             label[t] = float(crest[k])
             tree_edge[t] = int(eid[k])
             merged = dsu.union(a, b)
+            assert merged is not None, "ra != rb, so the union merges two sets"
             root, child = merged
             comp_root[root] = t
     log.info("  merge tree: %d leaves, %d internal nodes", n, next_node - n)
@@ -393,13 +394,12 @@ def rank_critical_passes(pass_matrix: pd.DataFrame, edges, neighborhoods):
         .rename(columns={"pass_edge_id": "edge_id"})
     )
     # which neighborhoods sit on each side
-    sides = (
-        pass_matrix.groupby("pass_edge_id")
-        .apply(
-            lambda g: "; ".join(sorted(set(g["neighborhood_a"]) | set(g["neighborhood_b"]))),
-            include_groups=False,
-        )
-        .rename("neighborhoods_separated")
+    sides = pd.Series(
+        {
+            edge_id: "; ".join(sorted(set(g["neighborhood_a"]) | set(g["neighborhood_b"])))
+            for edge_id, g in pass_matrix.groupby("pass_edge_id")
+        },
+        name="neighborhoods_separated",
     )
     agg = agg.merge(sides, left_on="edge_id", right_index=True, how="left")
 

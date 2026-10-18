@@ -472,10 +472,12 @@ def served_site():
 
     if not SITE_INDEX.exists():
         pytest.skip("site not built")
-    handler = functools.partial(
-        http.server.SimpleHTTPRequestHandler, directory=str(SITE_INDEX.parent)
-    )
-    handler.log_message = lambda *a, **k: None
+
+    class QuietHandler(http.server.SimpleHTTPRequestHandler):
+        def log_message(self, format, *args):
+            pass
+
+    handler = functools.partial(QuietHandler, directory=str(SITE_INDEX.parent))
     srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
     thread = threading.Thread(target=srv.serve_forever, daemon=True)
     thread.start()

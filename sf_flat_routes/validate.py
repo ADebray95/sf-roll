@@ -22,6 +22,8 @@ disagreement is reported with a diagnosis.
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 import pandas as pd
 
@@ -51,7 +53,7 @@ KNOWN_STEEP = {
 #: the Castro and climbs Pacific Heights on the way, so averaging over every
 #: edge of that name says nothing about the Wiggle. Windows are
 #: (lon_min, lon_max, lat_min, lat_max) in WGS84.
-KNOWN_FLAT = {
+KNOWN_FLAT: dict[str, dict[str, Any]] = {
     # The Wiggle is a *path*, not a set of streets: Duboce Avenue climbs 28%
     # toward the Castro and Scott Street climbs to Alamo Square, so any
     # name- or box-based average is meaningless. It is therefore validated as
@@ -275,7 +277,7 @@ def _check_flat_route(label, spec, edges, corridors):
     a = _nearest_graph_node(graph, edges, alon, alat)
     b = _nearest_graph_node(graph, edges, blon, blat)
 
-    res = {}
+    res: dict[str, dict[str, Any]] = {}
     for pname in ("shortest", "balanced", "min_climb"):
         arcs, s = route(graph, a, b, ROUTING_PROFILES[pname])
         net = abs(s["end_elev_m"] - s["start_elev_m"])

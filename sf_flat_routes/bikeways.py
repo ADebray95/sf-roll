@@ -194,7 +194,7 @@ def conflate(edges: gpd.GeoDataFrame, bikeways: gpd.GeoDataFrame | None = None) 
     return s
 
 
-def stress(edges: gpd.GeoDataFrame, facility: pd.Series | None = None) -> np.ndarray:
+def stress(edges: pd.DataFrame, facility: pd.Series | None = None) -> np.ndarray:
     """Bike comfort multiplier per edge (1.0 = an ordinary residential block)."""
     cls = edges["cls"].fillna("unknown").to_numpy()
     m = np.array([CLASS_STRESS.get(c, 1.1) for c in cls])
