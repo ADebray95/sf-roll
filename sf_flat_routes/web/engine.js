@@ -244,6 +244,14 @@ class Bundle {
   }
   /**
    * @param {string} name
+   * @returns {boolean} whether the bundle carries the string ``name``
+   */
+  hasText(name) {
+    return !!this.manifest.strings[name];
+  }
+
+  /**
+   * @param {string} name
    * @returns {NumArray}
    */
   array(name) {

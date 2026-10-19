@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Roll SF</title>
 <meta name="description" content="Roll SF: wheelchair-friendly routes in San Francisco that never climb a street steeper than you choose.">
+<meta name="theme-color" content="#0f8f6f">
 <!--__HEAD_EXTRA__-->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -13,75 +14,114 @@
 <style>/*__APP_CSS__*/</style>
 </head>
 <body>
-<div id="map"></div>
-<div class="credit" id="credit">built on <a href="https://github.com/almostimplemented/flattensf">flattensf</a></div>
-<section id="card" aria-label="Roll SF: plan a route">
-  <div class="head">
-    <h1>Roll SF <small>wheelchair routes across San Francisco</small></h1>
-    <div class="seg units" id="units" role="group" aria-label="Units">
-      <button type="button" data-u="mi" aria-pressed="true">mi</button>
-      <button type="button" data-u="km" aria-pressed="false">km</button>
+<main id="map" aria-label="Map"></main>
+<button type="button" class="mapbtn" id="recenter" aria-label="Show my location" hidden>
+  <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+</button>
+
+<section id="sheet" aria-label="Plan a route">
+  <header class="head">
+    <h1>Roll SF</h1>
+    <div class="headbtns">
+      <button type="button" class="icon" id="settingsbtn" aria-label="Settings">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="16" cy="7" r="2.2" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="10" cy="17" r="2.2" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+      </button>
+      <button type="button" class="icon" id="aboutbtn" aria-label="About Roll SF">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 11v6M12 7.5v.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
     </div>
-  </div>
-  <div class="row">
-    <div class="field">
-      <label for="from">From</label>
-      <input id="from" type="text" autocomplete="off" spellcheck="false" placeholder="Address, place, or 24th & Mission">
-      <span class="pin" aria-hidden="true"></span>
-      <ul class="suggest" id="from_s" role="listbox" hidden></ul>
+  </header>
+
+  <div class="places">
+    <div class="field" id="fromfield">
+      <label for="from">Start</label>
+      <input id="from" type="text" autocomplete="off" spellcheck="false" placeholder="My location, a place, or 24th &amp; Mission" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="from_s">
+      <button type="button" class="star" id="from_star" aria-label="Save start as a favourite" aria-pressed="false" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l2.7 5.6 6.1.8-4.4 4.3 1 6.1L12 17l-5.4 2.8 1-6.1-4.4-4.3 6.1-.8z"/></svg>
+      </button>
+      <ul class="suggest" id="from_s" role="listbox" aria-label="Start suggestions" hidden></ul>
     </div>
-    <button class="swap" id="swap" title="Swap" aria-label="Swap origin and destination"><svg class="ic-swap" viewBox="0 0 20 20" aria-hidden="true"><path d="M7 16V4M4.9 6.1L7 4l2.1 2.1M13 4v12M10.9 13.9L13 16l2.1-2.1" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-    <button class="swap loopbtn" id="loopbtn" type="button" title="Make it a loop" aria-label="Make it a loop" aria-pressed="false">
-      <svg class="ic ic-loop" viewBox="0 0 20 20" aria-hidden="true"><path d="M7 5h6a5 5 0 0 1 0 10H7A5 5 0 0 1 7 5z" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M9.3 2.9l2.1 2.1-2.1 2.1" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><circle class="a" cx="10" cy="15" r="2.4"/></svg>
-      <svg class="ic ic-line" viewBox="0 0 20 20" aria-hidden="true"><line x1="5" y1="15" x2="15" y2="5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle class="a" cx="4.6" cy="15.4" r="2.6"/><circle class="b" cx="15.4" cy="4.6" r="2.6"/></svg>
-    </button>
-  </div>
-  <div class="row">
     <div class="field" id="tofield">
-      <label for="to">To</label>
-      <input id="to" type="text" autocomplete="off" spellcheck="false" placeholder="Or click the map">
-      <span class="pin to" aria-hidden="true"></span>
-      <ul class="suggest" id="to_s" role="listbox" hidden></ul>
+      <label for="to">Destination</label>
+      <input id="to" type="text" autocomplete="off" spellcheck="false" placeholder="A place, an address, or tap the map" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="to_s">
+      <button type="button" class="star" id="to_star" aria-label="Save destination as a favourite" aria-pressed="false" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l2.7 5.6 6.1.8-4.4 4.3 1 6.1L12 17l-5.4 2.8 1-6.1-4.4-4.3 6.1-.8z"/></svg>
+      </button>
+      <ul class="suggest" id="to_s" role="listbox" aria-label="Destination suggestions" hidden></ul>
+    </div>
+    <div class="placebtns">
+      <button type="button" class="icon" id="swap" aria-label="Swap start and destination">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 19V5M5 8l3-3 3 3M16 5v14M13 16l3 3 3-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <button type="button" class="icon" id="loopbtn" aria-label="Make it a loop" aria-pressed="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h8a6 6 0 0 1 0 12H8A6 6 0 0 1 8 6z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M10.5 3.5L13 6l-2.5 2.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
     </div>
   </div>
-  <label class="calm" id="obrow" hidden>
-    <input type="checkbox" id="outback">
-    <span>Allow out and back <small>the same streets there and back, often the flattest way</small></span>
-  </label>
-  <div class="statusrow">
-    <div class="status" id="status"></div>
-    <span class="links"><button class="link" id="share" type="button" hidden>Copy link</button></span>
+
+  <div class="banner" id="banner" role="alert" hidden>
+    <p id="banner_t"></p>
+    <button type="button" class="link" id="usecap" hidden></button>
+  </div>
+  <p class="status" id="status" role="status" aria-live="polite"></p>
+
+  <div class="control" id="looprow" hidden>
+    <label for="loopkm"><span>Loop length</span> <b id="loopkm_v"></b></label>
+    <input type="range" id="loopkm" min="0.5" max="15" step="0.5" value="3">
+    <label class="check"><input type="checkbox" id="outback"> <span>Allow out and back</span></label>
+  </div>
+
+  <div class="control">
+    <label for="cap"><span class="big" id="cap_v">Max uphill 8 %</span></label>
+    <input type="range" id="cap" min="3" max="20" step="1" value="8" aria-valuetext="8 percent">
+    <div class="ends" aria-hidden="true"><span>3 %</span><span>20 %</span></div>
+  </div>
+
+  <div class="control" id="traderow">
+    <label for="notch"><span>Shortest ↔ Flattest</span> <b id="notch_v"></b></label>
+    <input type="range" id="notch" min="0" max="0" step="1" value="0" disabled>
+  </div>
+
+
+  <div class="summary" id="summary" hidden>
+    <span id="s_dist"></span><span class="dot" aria-hidden="true">·</span><span id="s_climb"></span><span class="dot" aria-hidden="true">·</span><span id="s_max"></span>
+  </div>
+  <canvas id="prof" height="120" role="img" aria-label="Elevation profile" hidden></canvas>
+  <div class="actions">
+    <button type="button" class="link" id="nextloop" hidden>Another loop</button>
+    <button type="button" class="link" id="share" hidden>Copy link</button>
   </div>
   <input id="sharebox" type="text" readonly hidden aria-label="Link to this route">
-  <div class="slider">
-    <input type="range" id="sl" min="0" max="1" step="0.001" value="1" aria-label="From shortest to flattest">
-    <div class="ends"><span id="end0">Shortest</span><b id="slpos"></b><span id="end1">Flattest</span></div>
-  </div>
-  <div class="result" id="result" hidden>
-    <div class="stat"><div class="v" id="v_dist"></div><div class="k">distance</div></div>
-    <div class="stat"><div class="v" id="v_climb"></div><div class="k">climbing</div></div>
-    <div class="stat"><div class="v" id="v_grade"></div><div class="k">steepest</div></div>
-  </div>
-  <canvas id="prof" width="760" height="184" hidden></canvas>
-  <div class="delta" id="delta"></div>
-  <div class="turns" id="turns" hidden></div>
-  <details>
-    <summary>How this works</summary>
-    <p class="fine">Routes are computed in your browser over the whole San
-    Francisco street graph, with USGS 1&nbsp;m lidar elevation on the
-    Overture / OpenStreetMap streets. Stairs, unpaved paths, freeways and
-    private roads are left out. The slider runs the trade-off between
-    distance and climbing: every route nothing else beats on both, from the
-    shortest to the flattest. Climbing is total gain, not the difference
-    between the endpoints.</p>
-    <p class="fine">The loop button turns the trip into a loop from one
-    start: the slider sets the distance and the flattest loop of about that
-    length is shown; tick <i>allow out and back</i> to include the same
-    streets there and back. Place search is offline.
-    <a href="/*__REPO_URL__*/">Source and data</a>.</p>
-  </details>
-  <p class="credit-inline">built on <a href="https://github.com/almostimplemented/flattensf">flattensf</a> by Drew Edwards</p>
 </section>
+
+<dialog id="settings" aria-labelledby="settings_h">
+  <h2 id="settings_h">Settings</h2>
+  <fieldset>
+    <legend>Units</legend>
+    <label class="check"><input type="radio" name="units" value="metric"> <span>Metres and kilometres</span></label>
+    <label class="check"><input type="radio" name="units" value="imperial"> <span>Feet and miles</span></label>
+  </fieldset>
+  <form method="dialog"><button class="primary">Done</button></form>
+</dialog>
+
+<dialog id="about" aria-labelledby="about_h">
+  <h2 id="about_h">About Roll SF</h2>
+  <p>Roll SF finds wheelchair-friendly routes in San Francisco. It never sends you up a street
+  steeper than your <b>max uphill</b>, measured as the steepest 15&nbsp;m stretch of each block in
+  the direction you travel; going downhill is never limited. Stairs, unpaved paths, freeways and
+  private roads are left out. Slope is the slope of the street centreline: sidewalks, curb ramps
+  and surfaces are not modelled.</p>
+  <p>Everything runs on your phone: the street graph is downloaded once and works offline.</p>
+  <p class="fine">Street data © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>
+  contributors via <a href="https://overturemaps.org">Overture Maps</a>, ODbL&nbsp;1.0; the graph
+  is a derived database under the ODbL. Elevation: USGS 3D Elevation Program (public domain).
+  Built on <a href="https://github.com/almostimplemented/flattensf">flattensf</a> by Drew Edwards
+  (MIT). Map library: Leaflet (BSD-2).</p>
+  <p class="fine" id="buildinfo"></p>
+  <p class="fine"><a href="/*__REPO_URL__*/">Source code and data notes</a></p>
+  <form method="dialog"><button class="primary">Close</button></form>
+</dialog>
+
 <script>/*__LEAFLET_JS__*/</script>
 <script>window.DATA = /*__DATA__*/;</script>
 <script>/*__APP_JS__*/</script>

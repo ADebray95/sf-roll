@@ -1,7 +1,7 @@
 """The app as a static site: ``site/`` is written from ``sf_flat_routes/web/``.
 
 The page is ``web/simple.html`` with its placeholders filled in; the scripts
-(``engine.js`` then ``simple.js``, concatenated), the stylesheet, Leaflet and
+(``APP_SCRIPTS``, concatenated), the stylesheet, Leaflet and
 the packed graph are written alongside as files whose names carry a content
 hash, so a browser that cached yesterday's script cannot run it against
 today's page. ``site/data/manifest.json`` records what the graph was built
@@ -26,6 +26,8 @@ log = get_logger("sf_flat_routes.webapp")
 SITE_INDEX = SITE_DIR / "index.html"
 MANIFEST_JSON = SITE_DIR / "data" / "manifest.json"
 WEB_DIR = Path(__file__).resolve().parent / "web"
+#: The app's classic scripts, concatenated in this order into site/app-<hash>.js.
+APP_SCRIPTS = ("engine.js", "format.js", "search.js", "simple.js")
 VENDOR_DIR = Path(__file__).resolve().parent / "vendor"
 
 _DESCRIPTION = (
@@ -209,7 +211,7 @@ def write_site(ctx) -> Path:
 
     assets = {
         "app.css": _hashed("app", "css", _asset("simple.css")),
-        "app.js": _hashed("app", "js", _asset("engine.js") + "\n" + _asset("simple.js")),
+        "app.js": _hashed("app", "js", "\n".join(_asset(n) for n in APP_SCRIPTS)),
         "leaflet.css": _hashed("leaflet", "css", _vendor("leaflet-1.9.4.css")),
         "leaflet.js": _hashed("leaflet", "js", _vendor("leaflet-1.9.4.min.js")),
     }

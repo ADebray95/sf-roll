@@ -15,5 +15,10 @@
     "isolatedModules": true,
     "skipLibCheck": true
   },
-  "include": ["sf_flat_routes/web/engine.js", "sf_flat_routes/web/globals.d.ts"]
+  "include": [
+    "sf_flat_routes/web/engine.js",
+    "sf_flat_routes/web/format.js",
+    "sf_flat_routes/web/search.js",
+    "sf_flat_routes/web/globals.d.ts"
+  ]
 }
