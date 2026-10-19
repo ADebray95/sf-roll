@@ -50,6 +50,7 @@
  * @property {Uint8Array | null} [penNode]
  * @property {number} [penK]
  * @property {number} [minPerM]
+ * @property {Uint8Array} [mask] the arcs it may use (Graph.allowedArcs)
  *
  * @typedef {"petal" | "outback" | "triangle" | "polygon"} LoopKind
  * @typedef {{
@@ -71,6 +72,7 @@
  * @property {number} [tolM]
  * @property {number} [retries]
  * @property {boolean} [outBack]
+ * @property {number} [cap] maximum uphill grade (fraction)
  *
  * @typedef {object} LoopSearch
  * @property {Loop[]} loops
@@ -91,6 +93,7 @@
  * @property {number} [dCap]
  * @property {number} [gCap]
  * @property {number} [maxLabels]
+ * @property {number} [cap] maximum uphill grade (fraction)
  *
  * @typedef {{ arcs: number[], length: number, weighted: number, gain: number }} ParetoSolution
  *
@@ -101,6 +104,13 @@
  * @property {number} labels
  * @property {boolean} truncated
  * @property {(budgetMs?: number) => boolean} [step]
+ *
+ * @typedef {{ arcs: number[], length: number, gain: number }} TradeoffRoute
+ * @typedef {object} Tradeoffs
+ * @property {TradeoffRoute} shortest
+ * @property {TradeoffRoute} flattest
+ * @property {ParetoSearch} search
+ * @property {() => TradeoffRoute[]} notches
  *
  * @typedef {object} RouteSummary
  * @property {number} distance_m
@@ -117,6 +127,15 @@
  * @property {string | undefined} cls
  * @property {number} length_m
  */
+
+/* The flattest end of the trade-off: a metre of climb is worth this many
+ * metres of distance. Beyond about 200 the router goes miles to save a few
+ * feet, which nobody would call a route. */
+const FLAT_ALPHA = 200;
+/* Pareto frontier points closer than this in climbing are merged, and the
+ * same tolerance (smaller) applies at intermediate nodes. */
+const PARETO_EPS_CM = 50;
+const PARETO_EPS_NODE_CM = 10;
 
 /* ------------------------------------------------------------------ decode */
 /** @type {Record<DTypeTag, NumArrayCtor>} */
@@ -430,15 +449,104 @@ class Graph {
     return c > 1e-6 ? c : 1e-6;
   }
 
+  /** Which arcs a search may use under an uphill cap: routable, and whose
+   * steepest 15 m uphill (max_up_grade_15m) is at most ``cap``. Descending
+   * is never limited, since an arc's value is measured in its own direction
+   * of travel. One byte per arc, cached per cap value.
+   * @param {number} [cap] the maximum uphill grade as a fraction; Infinity for none
+   * @returns {Uint8Array}
+   */
+  allowedArcs(cap = Infinity) {
+    const q = Number.isFinite(cap) ? Math.round(cap * this.GRADE) : Infinity;
+    if (!this._masks) this._masks = new Map();
+    const hit = this._masks.get(q);
+    if (hit) return hit;
+    const mask = new Uint8Array(this.m);
+    for (let a = 0; a < this.m; a++) {
+      mask[a] =
+        (/** @type {number} */ (this.arcFlags[a]) & 1) !== 0 &&
+        /** @type {number} */ (this.arcMaxUp[a]) <= q
+          ? 1
+          : 0;
+    }
+    this._masks.set(q, mask);
+    return mask;
+  }
+
+  /** The smallest uphill cap under which dst can be reached from src: a
+   * bottleneck (minimax) Dijkstra, where a path's key is the steepest
+   * max_up_grade_15m along it. Returns the cap as a fraction, or null when
+   * dst cannot be reached at any cap.
+   * @param {number} src
+   * @param {number} dst
+   * @returns {number | null}
+   */
+  minimaxCap(src, dst) {
+    if (src < 0 || dst < 0) return null;
+    if (src === dst) return 0;
+    const routable = this.allowedArcs(Infinity);
+    const best = new Float64Array(this.n).fill(Infinity);
+    const done = new Uint8Array(this.n);
+    const heap = new MinHeap();
+    best[src] = 0;
+    heap.push(0, src);
+    while (heap.n > 0) {
+      const u = heap.pop(),
+        bu = heap.topKey;
+      if (done[u]) continue;
+      done[u] = 1;
+      if (u === dst) return bu / this.GRADE;
+      for (
+        let a = /** @type {number} */ (this.indptr[u]);
+        a < /** @type {number} */ (this.indptr[u + 1]);
+        a++
+      ) {
+        if (!routable[a]) continue;
+        const v = /** @type {number} */ (this.head[a]);
+        const b = Math.max(bu, /** @type {number} */ (this.arcMaxUp[a]));
+        if (b < /** @type {number} */ (best[v])) {
+          best[v] = b;
+          heap.push(b, v);
+        }
+      }
+    }
+    return null;
+  }
+
+  /** The arcs of a route steeper uphill than ``cap``, steepest first.
+   * @param {number[]} arcs
+   * @param {number} cap a fraction
+   * @returns {number[]}
+   */
+  blockingArcs(arcs, cap) {
+    const q = Math.round(cap * this.GRADE);
+    return arcs
+      .filter((a) => /** @type {number} */ (this.arcMaxUp[a]) > q)
+      .sort(
+        (x, y) =>
+          /** @type {number} */ (this.arcMaxUp[y]) - /** @type {number} */ (this.arcMaxUp[x]),
+      );
+  }
+
+  /** max_up_grade_15m of one arc, as a fraction.
+   * @param {number} a
+   * @returns {number}
+   */
+  maxUp(a) {
+    return /** @type {number} */ (this.arcMaxUp[a]) / this.GRADE;
+  }
+
   /** Dijkstra with a flat binary heap, stopping once the target settles.
    * @param {number} src
    * @param {number} dst
    * @param {Weights} w
+   * @param {number} [cap] maximum uphill grade (fraction); Infinity for none
    * @returns {RouteResult | null}
    */
-  route(src, dst, w) {
+  route(src, dst, w, cap = Infinity) {
     if (src === dst || src < 0 || dst < 0) return null;
     const alpha = w.alpha;
+    const mask = this.allowedArcs(cap);
     const { dist, prev, seen, done, indptr, head } = this;
     const stamp = ++this.stamp;
 
@@ -518,7 +626,7 @@ class Graph {
         a < /** @type {number} */ (indptr[u + 1]);
         a++
       ) {
-        if ((/** @type {number} */ (this.arcFlags[a]) & 1) === 0) continue;
+        if (!mask[a]) continue;
         const v = /** @type {number} */ (head[a]);
         if (seen[v] === stamp && done[v]) continue;
         const nd = dv + this.arcCost(a, alpha);
@@ -561,7 +669,15 @@ class Graph {
   tree(
     src,
     cost,
-    { reverse = false, target = -1, pen = null, penNode = null, penK = 0, minPerM = 0 } = {},
+    {
+      reverse = false,
+      target = -1,
+      pen = null,
+      penNode = null,
+      penK = 0,
+      minPerM = 0,
+      mask = this.allowedArcs(Infinity),
+    } = {},
   ) {
     const n = this.n,
       rev = reverse ? this.reverse() : null;
@@ -602,7 +718,7 @@ class Graph {
         const a = reverse
           ? /** @type {number} */ (/** @type {ReverseAdjacency} */ (rev).arcs[k])
           : k;
-        if ((/** @type {number} */ (this.arcFlags[a]) & 1) === 0) continue;
+        if (!mask[a]) continue;
         const v = reverse
           ? /** @type {number} */ (/** @type {ReverseAdjacency} */ (rev).tail[a])
           : /** @type {number} */ (this.head[a]);
@@ -747,20 +863,22 @@ class Graph {
       targetM,
       alpha = 30,
       sectors = 24,
-      tol = 0.12,
+      tol = 0.15,
       maxOverlap = 0.3,
       penK = 3,
       keep = 3,
       nearM = 110,
       perArc = 8,
       minRound = 0.2,
-      tolM = 0.25 * 1609.344,
+      tolM = Infinity,
       retries = 3,
       outBack = false,
+      cap = Infinity,
     } = /** @type {LoopOptions} */ ({}),
   ) {
     const g = this,
-      T = targetM;
+      T = targetM,
+      mask = g.allowedArcs(cap);
     // a few metres per arc keeps routes off zigzags through tiny segments
     const cost = new Float64Array(g.m);
     for (let a = 0; a < g.m; a++)
@@ -836,7 +954,7 @@ class Graph {
      * @returns {number[] | null}
      */
     const leg = (from, to, pen, penNode) => {
-      const t = g.tree(from, cost, { target: to, pen, penNode, penK, minPerM });
+      const t = g.tree(from, cost, { target: to, pen, penNode, penK, minPerM, mask });
       return t.done[to] ? g.treePath(t, to) : null;
     };
     /**
@@ -1012,8 +1130,8 @@ class Graph {
     search.step = (budgetMs = 30) => {
       const start = performance.now();
       if (!F) {
-        F = g.tree(src, cost);
-        B = g.tree(src, cost, { reverse: true });
+        F = g.tree(src, cost, { mask });
+        B = g.tree(src, cost, { reverse: true, mask });
         bySector = Array.from({ length: sectors }, () => /** @type {number[]} */ ([]));
         const corner = g.corners();
         nodeGrid = new Map();
@@ -1133,9 +1251,10 @@ class Graph {
    * reverse Dijkstra), in that weight's own integer units.
    * @param {number} dst
    * @param {NumArray} weight
+   * @param {Uint8Array} [mask] the arcs it may use (allowedArcs)
    * @returns {Float64Array}
    */
-  boundsTo(dst, weight) {
+  boundsTo(dst, weight, mask = this.allowedArcs(Infinity)) {
     const { indptr, arcs, tail } = this.reverse();
     const dist = new Float64Array(this.n).fill(Infinity);
     const done = new Uint8Array(this.n);
@@ -1153,7 +1272,7 @@ class Graph {
         k++
       ) {
         const a = /** @type {number} */ (arcs[k]);
-        if ((/** @type {number} */ (this.arcFlags[a]) & 1) === 0) continue;
+        if (!mask[a]) continue;
         const v = /** @type {number} */ (tail[a]),
           nd = du + /** @type {number} */ (weight[a]);
         if (nd < /** @type {number} */ (dist[v])) {
@@ -1195,12 +1314,20 @@ class Graph {
   pareto(
     src,
     dst,
-    { eps = 50, epsNode = eps, dCap = Infinity, gCap = Infinity, maxLabels = 4e6 } = {},
+    {
+      eps = 50,
+      epsNode = eps,
+      dCap = Infinity,
+      gCap = Infinity,
+      maxLabels = 4e6,
+      cap: gradeCap = Infinity,
+    } = {},
   ) {
     const g = this;
     const len = g.arcLen;
-    const h1 = g.boundsTo(dst, len),
-      h2 = g.boundsTo(dst, g.arcGain);
+    const mask = g.allowedArcs(gradeCap);
+    const h1 = g.boundsTo(dst, len, mask),
+      h2 = g.boundsTo(dst, g.arcGain, mask);
     const g2min = new Float64Array(g.n).fill(Infinity);
     let cap = 1 << 16;
     let lNode = new Int32Array(cap),
@@ -1253,6 +1380,7 @@ class Graph {
     const search = { solutions: [], done: false, expanded: 0, labels: 0, truncated: false };
     if (src === dst || !Number.isFinite(/** @type {number} */ (h1[src]))) {
       search.done = true;
+      search.step = () => true;
       return search;
     }
     add(src, 0, 0, -1, -1);
@@ -1297,7 +1425,7 @@ class Graph {
           a < /** @type {number} */ (g.indptr[node + 1]);
           a++
         ) {
-          if ((/** @type {number} */ (g.arcFlags[a]) & 1) === 0) continue;
+          if (!mask[a]) continue;
           const v = /** @type {number} */ (g.head[a]),
             n1 = g1 + /** @type {number} */ (len[a]),
             n2 = g2 + /** @type {number} */ (g.arcGain[a]);
@@ -1323,6 +1451,51 @@ class Graph {
       return true;
     };
     return search;
+  }
+
+  /** The trade-off slider's routes between two nodes under an uphill cap
+   * (spec 6.2). ``shortest`` and ``flattest`` are found at once (plain
+   * Dijkstra, and a heavy climbing weight); ``search`` is the Pareto search
+   * between them, to be stepped until done; ``notches()`` then thins the
+   * frontier it found (with the flattest route closing it, in case the
+   * search's tolerances left it out) and returns them shortest first.
+   * Returns null when dst cannot be reached under the cap.
+   * @param {number} src
+   * @param {number} dst
+   * @param {number} [cap] maximum uphill grade (fraction)
+   * @returns {Tradeoffs | null}
+   */
+  tradeoff(src, dst, cap = Infinity) {
+    const shortest = this.route(src, dst, { alpha: 0 }, cap);
+    if (!shortest) return null;
+    const flat = this.route(src, dst, { alpha: FLAT_ALPHA }, cap) || shortest;
+    const sum = (/** @type {number[]} */ arcs) => this.summarise(arcs);
+    const s0 = sum(shortest.arcs),
+      sf = sum(flat.arcs);
+    const search = this.pareto(src, dst, {
+      cap,
+      eps: PARETO_EPS_CM,
+      epsNode: PARETO_EPS_NODE_CM,
+      dCap: Math.round(sf.distance_m * this.DM) + 1,
+      gCap: Math.round(s0.elev_gain_m * this.CM) + 1,
+    });
+    const asRoute = (/** @type {number[]} */ arcs) => {
+      const st = sum(arcs);
+      return { arcs, length: st.distance_m, gain: st.elev_gain_m };
+    };
+    const first = asRoute(shortest.arcs),
+      last = asRoute(flat.arcs);
+    return {
+      shortest: first,
+      flattest: last,
+      search,
+      notches: () => {
+        const found = search.solutions.map((x) => asRoute(x.arcs));
+        if (!found.length) found.push(first);
+        if (!found.some((r) => r.gain <= last.gain + 1e-9)) found.push(last);
+        return thinFrontier(found);
+      },
+    };
   }
 
   /** Arc index for an (edge id, reversed) pair. Built on first use; the map
@@ -1648,6 +1821,87 @@ class Grid {
   }
 }
 
+/* ------------------------------------------------------ the trade-off slider */
+/**
+ * @typedef {{ length: number, gain: number }} Tradeoff
+ */
+
+/** The climb a notch must save over the one before it: 2 m, or 5% of the
+ * shortest route's climb if that is more (spec 6.2).
+ * @param {number} shortestGain metres
+ * @returns {number} metres
+ */
+function climbStep(shortestGain) {
+  return Math.max(2, 0.05 * shortestGain);
+}
+
+/** Thin a Pareto frontier to the notches of the trade-off slider (spec 6.2).
+ *
+ * ``routes`` is the frontier, any order. Sorted by length, the shortest is
+ * notch 0; a route is kept when it climbs at least climbStep() less than the
+ * last kept one, so neighbouring notches always differ visibly, and the
+ * least-climbing route closes the list (replacing the last kept route if
+ * the two are closer than a step). At most ``maxNotches`` survive: the
+ * shortest, the flattest, and between them the routes nearest to evenly
+ * spaced climb targets. Removing notches only widens the gaps, so the
+ * step rule still holds.
+ * @template {Tradeoff} T
+ * @param {T[]} routes
+ * @param {number} [maxNotches]
+ * @returns {T[]}
+ */
+function thinFrontier(routes, maxNotches = 10) {
+  if (!routes.length) return [];
+  const byLength = routes.slice().sort((x, y) => x.length - y.length || x.gain - y.gain);
+  const first = /** @type {T} */ (byLength[0]);
+  const flattest = byLength.reduce((b, r) => (r.gain < b.gain - 1e-9 ? r : b), first);
+  const step = climbStep(first.gain);
+  /** @type {T[]} */
+  const kept = [first];
+  for (const r of byLength) {
+    if (r === first || r === flattest || r.length > flattest.length) continue;
+    if (/** @type {T} */ (kept[kept.length - 1]).gain - r.gain >= step) kept.push(r);
+  }
+  if (flattest !== first) {
+    while (kept.length > 1 && /** @type {T} */ (kept[kept.length - 1]).gain - flattest.gain < step)
+      kept.pop();
+    if (first.gain - flattest.gain >= step) kept.push(flattest);
+  }
+  if (kept.length <= maxNotches) return kept;
+  const last = /** @type {T} */ (kept[kept.length - 1]);
+  const used = new Set([0, kept.length - 1]);
+  for (let j = 1; j < maxNotches - 1; j++) {
+    const target = first.gain - ((first.gain - last.gain) * j) / (maxNotches - 1);
+    let best = -1,
+      bestErr = Infinity;
+    for (let i = 1; i < kept.length - 1; i++) {
+      if (used.has(i)) continue;
+      const err = Math.abs(/** @type {T} */ (kept[i]).gain - target);
+      if (err < bestErr) {
+        bestErr = err;
+        best = i;
+      }
+    }
+    used.add(best);
+  }
+  return kept.filter((_, i) => used.has(i));
+}
+
+/** The notch the slider opens on: the flattest route no more than 25% longer
+ * than notch 0 (spec 6.2).
+ * @param {Tradeoff[]} notches sorted as thinFrontier returns them
+ * @returns {number}
+ */
+function defaultNotch(notches) {
+  const first = notches[0];
+  if (!first) return 0;
+  let best = 0;
+  notches.forEach((r, i) => {
+    if (r.length <= 1.25 * first.length + 1e-9) best = i;
+  });
+  return best;
+}
+
 window.Graph = Graph;
 window.Geometry = Geometry;
 window.Grid = Grid;
@@ -1655,3 +1909,6 @@ window.Bundle = Bundle;
 window.inflate = inflate;
 window.loadBundle = loadBundle;
 window.MinHeap = MinHeap;
+window.thinFrontier = thinFrontier;
+window.defaultNotch = defaultNotch;
+window.climbStep = climbStep;

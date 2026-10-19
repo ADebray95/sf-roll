@@ -8,6 +8,9 @@ interface Window {
   inflate: typeof inflate;
   loadBundle: typeof loadBundle;
   MinHeap: typeof MinHeap;
+  thinFrontier: typeof thinFrontier;
+  defaultNotch: typeof defaultNotch;
+  climbStep: typeof climbStep;
 }
 
 // Caches Graph builds on first use; declared here so the class need not
@@ -16,4 +19,5 @@ interface Graph {
   _corners?: Uint8Array;
   _rev?: ReverseAdjacency;
   _arcLookup?: Map<number, number>;
+  _masks?: Map<number, Uint8Array>;
 }
