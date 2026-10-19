@@ -4,6 +4,17 @@ import { runInNewContext } from "node:vm";
 
 const SOURCE = readFileSync(new URL("engine.js", import.meta.url), "utf8");
 
+/** The app's other classic scripts, loaded after engine.js the way the page
+ * concatenates them; each publishes what it defines on window. */
+export function loadScripts(...names) {
+  const window = loadEngine();
+  for (const name of names) {
+    const src = readFileSync(new URL(name, import.meta.url), "utf8");
+    runInNewContext(src, { window, ...window });
+  }
+  return window;
+}
+
 /** engine.js is a classic browser script that publishes its classes on window. */
 export function loadEngine() {
   const window = {};

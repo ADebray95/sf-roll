@@ -74,8 +74,8 @@ Light smoothing keeps the sigma = 3 m DEM filter and turns the Savitzky-Golay fi
 ```json
 {
   "graph": "data/graph-cf0dbe0998.bin.gz",
-  "built": "2026-10-18",
-  "git_sha": "2067701aea4f",
+  "built": "2026-10-19",
+  "git_sha": "05b38825a262",
   "overture_release": "2026-08-19.0",
   "lidar_project": "CA_SanFrancisco_B23",
   "nodes": 68539,

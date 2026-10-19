@@ -6,7 +6,7 @@ generation itself. There is no server.
 
 ```
 USGS 3DEP lidar ─┐                                     ┌─ site/index.html
-Overture streets ┼─► sf_flat_routes (Python) ─► site/ ─┼─ site/app-<hash>.js   (engine.js + simple.js)
+Overture streets ┼─► sf_flat_routes (Python) ─► site/ ─┼─ site/app-<hash>.js   (engine, format, search, simple)
 Overture places ─┘   download → build-network → site   ├─ site/data/graph-<hash>.bin.gz
                                                         ├─ site/data/manifest.json
                                                         └─ site/data/hillshade-<hash>.png
@@ -18,16 +18,16 @@ The deployed page is **`site/index.html`**. It is generated, never edited by han
 `sf_flat_routes/webapp.py` (`python -m sf_flat_routes site`) from these sources in
 `sf_flat_routes/web/`:
 
-| Built file                           | Source                                                                                          |
-| ------------------------------------ | ----------------------------------------------------------------------------------------------- |
-| `site/index.html`                    | `simple.html`, placeholders filled by `webapp.page_html`                                        |
-| `site/app-<hash>.js`                 | `engine.js` + `"\n"` + `simple.js`, concatenated (one classic script, no bundler)               |
-| `site/app-<hash>.css`                | `simple.css`                                                                                    |
-| `site/leaflet-<hash>.{js,css}`       | `sf_flat_routes/vendor/leaflet-1.9.4.*`, unmodified                                             |
-| `site/data/graph-<hash>.bin.gz`      | `webgraph.build_payload` + `webgraph.bundle`, plus the place and address index from `places.py` |
-| `site/data/manifest.json`            | `webapp.build_manifest`: build date, git commit, Overture release, lidar project, counts        |
-| `site/data/hillshade-<hash>.png`     | `places.build_hillshade`, from the lidar DEM                                                    |
-| `site/favicon.svg`, `site/.nojekyll` | written by `webapp.write_site`                                                                  |
+| Built file                           | Source                                                                                            |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| `site/index.html`                    | `simple.html`, placeholders filled by `webapp.page_html`                                          |
+| `site/app-<hash>.js`                 | `engine.js`, `format.js`, `search.js`, `simple.js`, concatenated (one classic script, no bundler) |
+| `site/app-<hash>.css`                | `simple.css`                                                                                      |
+| `site/leaflet-<hash>.{js,css}`       | `sf_flat_routes/vendor/leaflet-1.9.4.*`, unmodified                                               |
+| `site/data/graph-<hash>.bin.gz`      | `webgraph.build_payload` + `webgraph.bundle`, plus the place and address index from `places.py`   |
+| `site/data/manifest.json`            | `webapp.build_manifest`: build date, git commit, Overture release, lidar project, counts          |
+| `site/data/hillshade-<hash>.png`     | `places.build_hillshade`, from the lidar DEM                                                      |
+| `site/favicon.svg`, `site/.nojekyll` | written by `webapp.write_site`                                                                    |
 
 Every asset name carries a content hash, so a browser holding yesterday's `app.js` cannot run it
 against today's `index.html`. `site/preview.jpg` and `site/robots.txt` are not produced by the
@@ -72,14 +72,27 @@ One gzipped buffer of typed arrays plus a JSON manifest of offsets embedded in t
 
 ## Browser (`sf_flat_routes/web/`)
 
-- **`engine.js`**: decoding (`Bundle`, `loadBundle`); `Graph` with Dijkstra `route()`, `pareto()`
-  (BOA*, the bi-objective search on length and climb, stepped in time slices so the page keeps
-  painting), `loops()` (petals and polygons around a start, ranked by climb), `summarise()` and
-  `profile()`; `Geometry` (decoded edge polylines); `Grid` (nearest-node lookup). It is a classic
-  script that publishes its classes on `window`; the unit tests load it into a Node `vm` context.
-- **`simple.js`**: the UI on Leaflet: offline place search (`Index`), the street canvas layer, the
-  shortest-to-flattest slider, loop mode, the elevation profile, the URL hash (`#t~…` trips,
-  `#l~…` loops) and units.
+Four classic scripts, concatenated in this order (`webapp.APP_SCRIPTS`) into `site/app-<hash>.js`;
+each publishes what it defines on `window`, which is also how the unit tests load them into a
+Node `vm` context (`engine.fixtures.js`).
+
+- **`engine.js`**: decoding (`Bundle`, `loadBundle`); `Graph` with `allowedArcs(cap)` (the per-cap
+  arc mask every search uses), Dijkstra `route()`, `pareto()` (BOA*, the bi-objective search on
+  length and climb, stepped in time slices), `tradeoff()` (shortest, flattest and the frontier for
+  the slider), `minimaxCap()` (the smallest feasible cap), `blockingArcs()`, `loops()`,
+  `summarise()` and `profile()`; `thinFrontier()` and `defaultNotch()` (spec 6.2); `Geometry`
+  (decoded edge polylines); `Grid` (nearest-node lookup).
+- **`format.js`**: every piece of text the interface shows (units, slider labels, the summary,
+  the infeasible banner, the steep-street note) and the URL hash. Pure functions.
+- **`search.js`**: the offline place index (`PlaceIndex`: intersections from the graph's street
+  names, Overture places and addresses), block naming for the banner, and favourites and units in
+  `localStorage` (`sfroll.favourites.v1`, `sfroll.units.v1`; every access wrapped in try/catch).
+- **`simple.js`**: the app on Leaflet. The street canvas greys out streets steeper than the cap
+  and repaints on every slider move; the route is drawn per arc in grade colours with the
+  unconstrained shortest route dashed beneath; the bottom sheet holds start, destination (or loop
+  length), the cap and trade-off sliders, the banner, the summary and the elevation profile.
+  Changes recompute at once (cap drags at most every 100 ms); the state lives in the URL hash
+  (`#r~cap~notch~…` trips, `#l~cap~km~…` loops).
 - The base map is a lidar hillshade image plus the street lines painted from the graph on a canvas.
   The app loads no third-party map tiles.
 

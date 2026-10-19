@@ -17,10 +17,10 @@ Design notes are in [`docs/architecture.md`](docs/architecture.md).
 
 ## Status
 
-Roll SF is a fork of [flattensf](https://github.com/almostimplemented/flattensf) and is being built
-in milestones. The graph is now the wheelchair network (no stairs, unpaved paths, freeways or
-private roads) with each street's steepest 15 m uphill grade; the uphill cap and the new
-interface land in the next milestones.
+Roll SF is a fork of [flattensf](https://github.com/almostimplemented/flattensf), built in
+milestones from [`docs/spec.md`](docs/spec.md). Routing under the uphill cap, the trade-off
+slider, loops, offline search, favourites and the infeasible-route explanation work; installing
+to the home screen and full offline support come next.
 
 ## Running locally
 
