@@ -1,0 +1,25 @@
+{
+  "name": "Roll SF",
+  "short_name": "Roll SF",
+  "description": "Wheelchair-friendly routes in San Francisco: never climb a street steeper than you choose, and trade distance for less climbing.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f6f6f3",
+  "theme_color": "#0b7a5e",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

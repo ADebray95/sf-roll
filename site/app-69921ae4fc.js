@@ -1498,7 +1498,12 @@ class Graph {
       flattest: last,
       search,
       notches: () => {
-        const found = search.solutions.map((x) => asRoute(x.arcs));
+        // the search already knows each solution's length and climb
+        const found = search.solutions.map((x) => ({
+          arcs: x.arcs,
+          length: x.length,
+          gain: x.gain,
+        }));
         if (!found.length) found.push(first);
         if (!found.some((r) => r.gain <= last.gain + 1e-9)) found.push(last);
         return thinFrontier(found);
@@ -2742,14 +2747,36 @@ Object.assign(window, {
     return css("--g3");
   }
 
-  /* ---------------------------- streets, with the over-cap ones greyed */
+  /* ---------------------------------------- the street canvases (7.2) */
+  /* Street coordinates projected once to Web Mercator pixels at zoom 0, so a
+   * repaint only scales and shifts them. */
+  function projectAll(geom) {
+    const n = geom.coords.length,
+      out = new Float64Array(n);
+    for (let k = 0; k < n; k += 2) {
+      const lon = geom.coords[k],
+        lat = (geom.coords[k + 1] * Math.PI) / 180;
+      out[k] = ((lon + 180) / 360) * 256;
+      out[k + 1] = (0.5 - Math.log(Math.tan(Math.PI / 4 + lat / 2)) / (2 * Math.PI)) * 256;
+    }
+    return out;
+  }
+
+  /* One canvas over the map. ``blocked`` false paints every street faintly
+   * and repaints only when the map moves; ``blocked`` true paints just the
+   * streets steeper than the cap (grey dots) and also repaints when the cap
+   * changes, which is what keeps dragging the cap slider smooth. */
   const StreetLayer = L.Layer.extend({
-    initialize(app) {
+    initialize(app, blocked) {
       this.app = app;
+      this.blocked = blocked;
     },
     onAdd(map) {
       this._map = map;
-      this._canvas = L.DomUtil.create("canvas", "leaflet-zoom-animated streets");
+      this._canvas = L.DomUtil.create(
+        "canvas",
+        "leaflet-zoom-animated " + (this.blocked ? "streets-blocked" : "streets"),
+      );
       map.getPanes().overlayPane.appendChild(this._canvas);
       map.on("moveend zoomend resize", this.redraw, this);
       map.on("zoomanim", this._animate, this);
@@ -2780,8 +2807,10 @@ Object.assign(window, {
     redraw() {
       const map = this._map;
       if (!map) return;
+      // two device pixels per CSS pixel are plenty for hairlines, and a third
+      // would more than double what every repaint has to composite
       const size = map.getSize(),
-        dpr = window.devicePixelRatio || 1;
+        dpr = Math.min(window.devicePixelRatio || 1, 2);
       if (this._canvas.width !== size.x * dpr || this._canvas.height !== size.y * dpr) {
         this._canvas.width = size.x * dpr;
         this._canvas.height = size.y * dpr;
@@ -2799,55 +2828,50 @@ Object.assign(window, {
         east = b.getEast(),
         south = b.getSouth(),
         north = b.getNorth();
-      const minLen = z >= 15 ? 0 : z >= 14 ? 10 : z >= 13 ? 20 : 40;
-      const { geom, edgeUp } = this.app;
+      const { geom, edgeUp, projected } = this.app;
       const capQ = this.app.state.cap / 100;
-      const origin = map.latLngToLayerPoint(nw);
+      const scale = Math.pow(2, z),
+        o = map.project(nw, z);
+      const minLen = this.blocked ? 0 : z >= 15 ? 0 : z >= 14 ? 10 : z >= 13 ? 20 : 40;
       const width = z >= 16 ? 1.6 : z >= 14 ? 1.1 : 0.8;
-      const path = (i) => {
-        const s = geom.starts[i],
-          e = geom.starts[i + 1];
-        for (let k = s; k < e; k += 2) {
-          const p = map.latLngToLayerPoint([geom.coords[k + 1], geom.coords[k]]);
-          if (k === s) ctx.moveTo(p.x - origin.x, p.y - origin.y);
-          else ctx.lineTo(p.x - origin.x, p.y - origin.y);
-        }
-      };
-      const blocked = [];
+      let count = 0;
       ctx.lineCap = "round";
-      ctx.strokeStyle = css("--street");
-      ctx.lineWidth = width;
+      if (this.blocked) {
+        // grey dots, the same whatever the zoom (the unconstrained route is dashed)
+        ctx.strokeStyle = css("--blocked");
+        ctx.globalAlpha = 0.7;
+        ctx.lineWidth = width + 1.4;
+        ctx.setLineDash([0.1, 4]);
+      } else {
+        ctx.strokeStyle = css("--street");
+        ctx.lineWidth = width;
+      }
       ctx.beginPath();
       for (let i = 0; i < geom.nEdges; i++) {
-        const o = i * 4;
+        if (this.blocked !== edgeUp[i] > capQ) continue;
+        const q = i * 4;
         if (
-          geom.bbox[o + 2] < west ||
-          geom.bbox[o] > east ||
-          geom.bbox[o + 3] < south ||
-          geom.bbox[o + 1] > north
+          geom.bbox[q + 2] < west ||
+          geom.bbox[q] > east ||
+          geom.bbox[q + 3] < south ||
+          geom.bbox[q + 1] > north
         )
           continue;
-        if (edgeUp[i] > capQ) {
-          blocked.push(i);
-          continue;
-        }
         if (minLen && geom.len[i] / geom.DM < minLen) continue;
-        path(i);
+        count++;
+        const s = geom.starts[i],
+          e = geom.starts[i + 1];
+        ctx.moveTo(projected[s] * scale - o.x, projected[s + 1] * scale - o.y);
+        for (let k = s + 2; k < e; k += 2)
+          ctx.lineTo(projected[k] * scale - o.x, projected[k + 1] * scale - o.y);
       }
-      ctx.stroke();
-      // streets steeper than the cap, in at least one direction: grey dots,
-      // the same whatever the zoom (the unconstrained route is dashed)
-      ctx.strokeStyle = css("--blocked");
-      ctx.globalAlpha = 0.7;
-      ctx.lineWidth = width + 1.4;
-      ctx.setLineDash([0.1, 4]);
-      ctx.beginPath();
-      for (const i of blocked) path(i);
       ctx.stroke();
       ctx.setLineDash([]);
       ctx.globalAlpha = 1;
-      this._canvas.dataset.overCap = String(blocked.length);
-      this._canvas.dataset.cap = String(this.app.state.cap);
+      if (this.blocked) {
+        this._canvas.dataset.overCap = String(count);
+        this._canvas.dataset.cap = String(this.app.state.cap);
+      }
     },
   });
 
@@ -2878,6 +2902,7 @@ Object.assign(window, {
       this.geom = new Geometry(bundle, DATA.meta);
       DATA.bundle = null;
       this.buildEdgeGrades();
+      this.projected = projectAll(this.geom);
       const routable = [];
       for (let i = 0; i < g.n; i++) if (g.nodeFlags[i]) routable.push(i);
       this.routable = Int32Array.from(routable);
@@ -2888,6 +2913,10 @@ Object.assign(window, {
       );
       this.index = new PlaceIndex(g, this.geom, bundle, DATA.addr);
       this.buildMap();
+      // Chrome rasterises a canvas layer from scratch the first time it
+      // changes after its first paint, a one-off that would stall the first
+      // drag of the cap slider; repainting on the next frame takes it now
+      requestAnimationFrame(() => requestAnimationFrame(() => this.streets.redraw()));
       this.buildUI();
       setStatus("");
       const shared = decodeState(location.hash, CAP);
@@ -2895,6 +2924,15 @@ Object.assign(window, {
       else this.useGps(true);
       this.renderControls();
       this.recompute(true);
+      this.registerWorker();
+    },
+
+    /* the service worker caches the app and the graph for offline use (spec 8) */
+    registerWorker() {
+      if (!("serviceWorker" in navigator) || location.protocol === "file:") return;
+      navigator.serviceWorker.register("sw.js").catch((err) => {
+        console.warn("offline use is unavailable:", err);
+      });
     },
 
     /* the steeper direction of every edge, for the over-cap overlay, and
@@ -2938,7 +2976,8 @@ Object.assign(window, {
           alt: "",
         }).addTo(map);
       }
-      this.streets = new StreetLayer(this).addTo(map);
+      new StreetLayer(this, false).addTo(map);
+      this.streets = new StreetLayer(this, true).addTo(map);
       const labels = L.layerGroup().addTo(map);
       for (const l of DATA.labels || []) {
         L.marker([l.lat, l.lon], {
@@ -3195,7 +3234,7 @@ Object.assign(window, {
         this.state.notch = null;
         this.renderControls();
         this.streets.schedule();
-        this.throttle(() => this.recompute("auto"), CAP_THROTTLE_MS);
+        this.throttle(() => this.recompute("auto", true), CAP_THROTTLE_MS);
       });
       cap.addEventListener("change", () => {
         clearTimeout(this._throttle);
@@ -3414,7 +3453,12 @@ Object.assign(window, {
     },
 
     /* ------------------------------------------------------------ routing */
-    recompute(fit) {
+    /* Route again after any change. The shortest route under the cap (or,
+     * when none exists, under the smallest cap that works) shows at once;
+     * the trade-off search then runs in slices. ``quick`` (while the cap
+     * slider is being dragged) stops after the shortest route, so a drag
+     * stays smooth; the full search runs on release. */
+    recompute(fit, quick = false) {
       const gen = ++this.gen;
       this.result = null;
       this.writeHash();
@@ -3432,39 +3476,58 @@ Object.assign(window, {
         return;
       }
       const g = this.graph;
-      const plain = g.route(from.node, to.node, { alpha: 0 });
-      let t = g.tradeoff(from.node, to.node, cap / 100);
-      let need = null;
-      if (!t) {
+      // the unconstrained shortest route does not depend on the cap
+      const key = from.node + ">" + to.node;
+      if (!this._plain || this._plain.key !== key) {
+        const route = g.route(from.node, to.node, { alpha: 0 });
+        this._plain = { key, route, ref: route ? g.summarise(route.arcs) : null };
+      }
+      let limit = cap / 100,
+        need = null;
+      let first = g.route(from.node, to.node, { alpha: 0 }, limit);
+      if (!first) {
         const cStar = g.minimaxCap(from.node, to.node);
-        if (cStar === null) {
+        if (cStar === null || !this._plain.route) {
           this.clearRoute();
           setStatus("These two places are not connected by wheelchair-accessible streets.");
           return;
         }
         need = Math.max(cap + 1, Math.ceil(cStar * 100 - 1e-9));
-        t = g.tradeoff(from.node, to.node, cStar);
+        limit = cStar;
+        first = g.route(from.node, to.node, { alpha: 0 }, limit);
       }
-      const ref = g.summarise(plain.arcs);
-      this.result = { t, need, ref, plainArcs: plain.arcs, notches: [t.shortest], partial: true };
+      const s0 = g.summarise(first.arcs);
+      this.result = {
+        need,
+        ref: this._plain.ref,
+        plainArcs: this._plain.route.arcs,
+        notches: [{ arcs: first.arcs, length: s0.distance_m, gain: s0.elev_gain_m }],
+        partial: true,
+      };
       setStatus("");
       this.showNotch();
+      // the map holds still while the cap is dragged; it refits on release
+      if (quick) return;
       if (fit === true || (fit === "auto" && !this.inView())) this.fit();
-      const run = () => {
+      setTimeout(() => {
         if (gen !== this.gen) return;
-        if (!t.search.step(SLICE_MS)) {
-          setTimeout(run, 0);
-          return;
-        }
-        const notches = t.notches();
-        this.result.notches = notches;
-        this.result.partial = false;
-        if (this.state.notch === null || this.state.notch >= notches.length)
-          this.state.notch = defaultNotch(notches);
-        this.showNotch();
-        this.writeHash();
-      };
-      setTimeout(run, 0);
+        const t = g.tradeoff(from.node, to.node, limit);
+        const run = () => {
+          if (gen !== this.gen) return;
+          if (!t.search.step(SLICE_MS)) {
+            setTimeout(run, 0);
+            return;
+          }
+          const notches = t.notches();
+          this.result.notches = notches;
+          this.result.partial = false;
+          if (this.state.notch === null || this.state.notch >= notches.length)
+            this.state.notch = defaultNotch(notches);
+          this.showNotch();
+          this.writeHash();
+        };
+        setTimeout(run, 0);
+      }, 0);
     },
 
     recomputeLoop(gen, fit) {
@@ -3505,7 +3568,7 @@ Object.assign(window, {
     /* the trade-off notch on show */
     showNotch() {
       const r = this.result;
-      if (!r || !r.t) return;
+      if (!r || !r.notches) return;
       const n = r.notches.length;
       const i = r.partial ? 0 : clamp(this.state.notch ?? 0, 0, n - 1);
       const route = r.notches[i];
