@@ -118,6 +118,7 @@ fonts. The app has no map tiles to cache.
 | JS types                     | `tsc --noEmit` with `checkJs` over JSDoc                                      | `tsconfig.json`                   |
 | JS unit tests                | `vitest` on synthetic graphs                                                  | `sf_flat_routes/web/*.test.js`    |
 | End-to-end                   | Playwright (iPhone 13 viewport) against the committed `site/`                 | `e2e/`                            |
+| Scenario trips               | Playwright over `tests/scenarios.yaml`; report in `docs/scenarios.md`         | `e2e/scenarios.spec.js`           |
 | Workflows                    | `actionlint`, `zizmor`                                                        | `.github/workflows/`              |
 | Secrets                      | `betterleaks`                                                                 | `prek` hook                       |
 

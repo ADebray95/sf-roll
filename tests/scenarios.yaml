@@ -1,0 +1,149 @@
+# Scenario trips (spec 10.3). Each is checked by e2e/scenarios.spec.js against the built site,
+# and `SCENARIO_REPORT=1 pnpm exec playwright test e2e/scenarios.spec.js` rewrites
+# docs/scenarios.md with the results and a screenshot of each.
+#
+# To add a trip, copy one below. Places are searched the way the app's search box does
+# ("24th & Mission", "Ferry Building", "1234 Valencia"), or given as `lon` and `lat`.
+#
+# Expectations (all optional):
+#   route: true            a route under the cap must exist
+#   route_or_fallback: true either a route under the cap, or the fallback banner
+#   fallback: true         no route fits the cap: the banner must show
+#   banner_mentions: [...] the banner names one of these streets
+#   avoid_uphill: [...]    never climb these blocks, given as "Street: From / To"
+#   climb_le_shortest: true a route under the cap climbs no more than the unconstrained shortest
+#   along: {streets: [...], share: 0.5}  at least this share of the length on these streets
+#   loop: true             a loop must be found
+#   loop_or_message: true  a loop, or the "No loop of about ..." message
+#
+# `pending_review: <why>` marks a trip whose expectation does not hold and needs Arnaud's call:
+# its problems are reported in docs/scenarios.md but do not fail the run.
+#
+# Every trip at a cap of 8% or less also checks Arnaud's standing rule: never climb
+# Hayes St between Fillmore and Steiner (see `always_avoid_uphill`).
+
+always_avoid_uphill:
+  max_cap: 8
+  blocks:
+    - "Hayes Street: Fillmore Street / Steiner Street"
+
+scenarios:
+  - id: S1
+    name: Filbert & Leavenworth to Filbert & Hyde
+    from: Filbert & Leavenworth
+    to: Filbert & Hyde
+    cap: 8
+    expect:
+      route_or_fallback: true
+      avoid_uphill: ["Filbert Street: Leavenworth Street / Hyde Street"]
+
+  - id: S2
+    name: 22nd & Church to 22nd & Vicksburg
+    from: 22nd St & Church St
+    to: 22nd St & Vicksburg
+    cap: 8
+    expect:
+      route_or_fallback: true
+      avoid_uphill: ["22nd Street: Church Street / Vicksburg Street"]
+
+  - id: S3
+    name: 22nd & Vicksburg to 22nd & Church (downhill)
+    from: 22nd St & Vicksburg
+    to: 22nd St & Church St
+    cap: 8
+    expect:
+      route: true
+
+  - id: S4
+    name: Ferry Building to Coit Tower
+    from: Ferry Building
+    to: { lon: -122.4058, lat: 37.8024, label: Coit Tower }
+    cap: 8
+    expect:
+      fallback: true
+      banner_mentions: [Telegraph Hill, Lombard, Filbert, Greenwich, Kearny]
+
+  - id: S5
+    name: Union Square to the Fairmont (California & Mason)
+    from: Union Square
+    to: California St & Mason
+    cap: 8
+    expect:
+      route_or_fallback: true
+      banner_mentions: [California, Powell, Mason, Sacramento, Pine, Taylor, Clay, Jones, Bush]
+
+  - id: S6
+    name: Civic Center BART to Alamo Square (Hayes & Steiner)
+    from: Civic Center
+    to: Hayes & Steiner
+    cap: 8
+    pending_review: >-
+      The spec expects a route under 8%, but Hayes & Steiner is the top corner of Alamo Square:
+      every way up needs at least 12% (the gentlest climbs Fell St), and Hayes is never climbed.
+      Keep this corner (and accept the fallback), or pick a lower corner of the square?
+    expect:
+      route: true
+
+  - id: S7
+    name: Castro & Market to Church & 20th (top of Dolores Park)
+    from: Castro & Market
+    to: Church St & 20th
+    cap: 8
+    expect:
+      route_or_fallback: true
+      climb_le_shortest: true
+
+  - id: S8
+    name: Mission & 24th to Castro & 24th
+    from: Mission St & 24th
+    to: Castro & 24th
+    cap: 8
+    expect:
+      route_or_fallback: true
+
+  - id: S9
+    name: Embarcadero & Market to Marina Green (Marina Blvd & Scott)
+    from: The Embarcadero & Market
+    to: Marina Blvd & Scott
+    cap: 5
+    pending_review: >-
+      At 5% the waterfront is cut at Fort Mason (McDowell Rd 15.8%, Van Ness north of Bay 8.6%);
+      the smallest cap from Aquatic Park to the Marina is 4.8%, by way of North Beach and the
+      Broadway tunnel. Keep 5% and accept the inland route, or raise this trip's cap?
+    expect:
+      route: true
+      along:
+        streets:
+          [
+            The Embarcadero,
+            Jefferson Street,
+            Beach Street,
+            Marina Boulevard,
+            North Point Street,
+            Bay Street,
+          ]
+        share: 0.5
+
+  - id: S10
+    name: Loop of 3 km from the Ferry Building
+    from: Ferry Building
+    loop_km: 3
+    cap: 5
+    expect:
+      loop: true
+
+  - id: S11
+    name: Loop of 5 km from Church & 18th (Dolores Park)
+    from: Church St & 18th
+    loop_km: 5
+    cap: 8
+    expect:
+      loop_or_message: true
+
+  - id: S12
+    name: Folsom & 20th to Mission & 5th (Arnaud)
+    from: Folsom & 20th
+    to: Mission St & 5th
+    cap: 8
+    expect:
+      route: true

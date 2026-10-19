@@ -54,6 +54,11 @@ pnpm run e2e                 # Playwright against the committed site/
 
 Tests marked `needs_data` need the cached source data (below) and only run locally.
 
+The scenario trips in [`tests/scenarios.yaml`](tests/scenarios.yaml) run in the e2e suite; to
+refresh [`docs/scenarios.md`](docs/scenarios.md) and its screenshots, run
+`SCENARIO_REPORT=1 pnpm exec playwright test e2e/scenarios.spec.js`. Add your own trips to the
+YAML file: places are searched the way the app's search box does, so no code changes are needed.
+
 ## Rebuilding the data
 
 Building the street graph needs about 775 MB of public source data (USGS 1 m lidar and an Overture

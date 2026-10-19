@@ -419,8 +419,11 @@ class Graph {
     this.seen = new Int32Array(this.n);
     this.done = new Uint8Array(this.n);
     this.stamp = 0;
-    this.heapKey = new Float64Array(1 << 16);
-    this.heapVal = new Int32Array(1 << 16);
+    // search buffers start at the graph's size (up to 65,536 entries) and
+    // grow on demand, so a small test graph does not allocate a city's worth
+    this.heapCap = Math.min(1 << 16, Math.max(64, this.n));
+    this.heapKey = new Float64Array(this.heapCap);
+    this.heapVal = new Int32Array(this.heapCap);
   }
 
   /**
@@ -495,7 +498,7 @@ class Graph {
     const routable = this.allowedArcs(Infinity);
     const best = new Float64Array(this.n).fill(Infinity);
     const done = new Uint8Array(this.n);
-    const heap = new MinHeap();
+    const heap = new MinHeap(this.heapCap);
     best[src] = 0;
     heap.push(0, src);
     while (heap.n > 0) {
@@ -694,7 +697,7 @@ class Graph {
     const done = new Uint8Array(n),
       len = new Float64Array(n),
       gain = new Float64Array(n);
-    const heap = new MinHeap();
+    const heap = new MinHeap(this.heapCap);
     // with a target and a known floor on cost per metre (minPerM), the
     // search is A*: straight-line distance to the target times that floor
     // never overestimates, so the route found is still the cheapest
@@ -1266,7 +1269,7 @@ class Graph {
     const { indptr, arcs, tail } = this.reverse();
     const dist = new Float64Array(this.n).fill(Infinity);
     const done = new Uint8Array(this.n);
-    const heap = new MinHeap();
+    const heap = new MinHeap(this.heapCap);
     dist[dst] = 0;
     heap.push(0, dst);
     while (heap.n > 0) {
@@ -1337,7 +1340,7 @@ class Graph {
     const h1 = g.boundsTo(dst, len, mask),
       h2 = g.boundsTo(dst, g.arcGain, mask);
     const g2min = new Float64Array(g.n).fill(Infinity);
-    let cap = 1 << 16;
+    let cap = g.heapCap;
     let lNode = new Int32Array(cap),
       lG1 = new Int32Array(cap),
       lG2 = new Int32Array(cap),
@@ -1362,7 +1365,7 @@ class Graph {
       lArc = r(lArc, Int32Array);
     };
     const K = 1 << 20; // f1 in the high bits, f2 in the low: expansion order (f1, f2)
-    const heap = new MinHeap();
+    const heap = new MinHeap(this.heapCap);
     /**
      * @param {number} node
      * @param {number} g1
