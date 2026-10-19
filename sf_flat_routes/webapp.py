@@ -99,10 +99,76 @@ def page_html(payload: dict, assets: dict[str, str]) -> str:
             f'<meta property="og:description" content="{_DESCRIPTION}">',
             f'<meta property="og:url" content="{SITE_URL}">',
             f'<link rel="preload" href="{payload["bundle_url"]}" as="fetch" crossorigin>',
+            '<link rel="manifest" href="manifest.webmanifest">',
+            f'<link rel="apple-touch-icon" href="{APPLE_ICON}">',
+            '<meta name="apple-mobile-web-app-capable" content="yes">',
+            f'<meta name="apple-mobile-web-app-title" content="{PRODUCT_NAME}">',
         ]
     )
     html = fill(html, r"<!--__HEAD_EXTRA__-->", head)
     return fill(html, r"/\*__DATA__\*/", json.dumps(payload, separators=(",", ":")))
+
+
+THEME = "#0b7a5e"
+BACKGROUND = "#f6f6f3"
+ICON_SIZES = (192, 512)
+APPLE_ICON = "apple-touch-icon.png"
+
+
+def app_icon(size: int) -> bytes:
+    """The home-screen icon: the favicon's slope line on a full-bleed green
+    square, so it also works as a maskable icon."""
+    import io
+
+    from PIL import Image, ImageDraw
+
+    scale = 4  # draw large, then downsample, for smooth edges
+    n = size * scale
+    im = Image.new("RGB", (n, n), THEME)
+    draw = ImageDraw.Draw(im)
+    # a gentle rise, a crest and a run on: the route over a hill, drawn as
+    # overlapping discs so the stroke stays smooth at any width
+    r = 0.04 * n
+    steps = 600
+    for i in range(steps + 1):
+        t = i / steps
+        x = (0.2 + 0.6 * t) * n
+        y = (0.66 - 0.22 * (3 * t * t - 2 * t * t * t)) * n
+        draw.ellipse((x - r, y - r, x + r, y + r), fill="white")
+    im = im.resize((size, size), Image.Resampling.LANCZOS)
+    buf = io.BytesIO()
+    im.save(buf, "PNG", optimize=True)
+    return buf.getvalue()
+
+
+def web_manifest() -> dict:
+    """``manifest.webmanifest``: installable to the home screen (spec D3, 8)."""
+    return {
+        "name": PRODUCT_NAME,
+        "short_name": PRODUCT_NAME,
+        "description": _DESCRIPTION,
+        "start_url": "./",
+        "scope": "./",
+        "display": "standalone",
+        "orientation": "portrait",
+        "background_color": BACKGROUND,
+        "theme_color": THEME,
+        "icons": [
+            {
+                "src": f"icon-{n}.png",
+                "sizes": f"{n}x{n}",
+                "type": "image/png",
+                "purpose": "any maskable",
+            }
+            for n in ICON_SIZES
+        ],
+    }
+
+
+def service_worker(shell: list[str], version: str) -> str:
+    """``sw.js`` from ``web/sw.js``: precaches ``shell`` in a cache named after ``version``."""
+    text = fill(_asset("sw.js"), r"__VERSION__", version)
+    return fill(text, r"/\*__SHELL__\*/ \[\]", json.dumps(shell))
 
 
 def _git_sha() -> str:
@@ -190,6 +256,27 @@ def _pack(graph: dict) -> tuple[dict, dict | None]:
     return packed, {"origin": addr["origin"], "step": 1e-5}
 
 
+def _write_pwa(assets: dict[str, str], data_files: list[str]) -> None:
+    """The web manifest, the icons and the service worker."""
+    for n in ICON_SIZES:
+        (SITE_DIR / f"icon-{n}.png").write_bytes(app_icon(n))
+    (SITE_DIR / APPLE_ICON).write_bytes(app_icon(180))
+    (SITE_DIR / "manifest.webmanifest").write_text(
+        json.dumps(web_manifest(), indent=2) + "\n", encoding="utf-8"
+    )
+    shell = [
+        "./",
+        *sorted(assets.values()),
+        *data_files,
+        "manifest.webmanifest",
+        "favicon.svg",
+        *(f"icon-{n}.png" for n in ICON_SIZES),
+        APPLE_ICON,
+    ]
+    version = hashlib.sha1("\n".join(shell).encode("utf-8")).hexdigest()[:10]
+    (SITE_DIR / "sw.js").write_text(service_worker(shell, version), encoding="utf-8")
+
+
 def write_site(ctx) -> Path:
     """Build the packed graph and write ``site/``."""
     from sf_flat_routes.places import build_hillshade
@@ -228,6 +315,7 @@ def write_site(ctx) -> Path:
     SITE_INDEX.write_text(page_html(payload, assets), encoding="utf-8")
     (SITE_DIR / "favicon.svg").write_text(_FAVICON, encoding="utf-8")
     (SITE_DIR / ".nojekyll").write_text("", encoding="utf-8")
+    _write_pwa(assets, ["data/" + gz_name, "data/" + png_name])
     site_bytes = sum(f.stat().st_size for f in SITE_DIR.rglob("*") if f.is_file())
     log.info("wrote the site in %s (%s)", SITE_DIR.name, human_bytes(site_bytes))
     return SITE_INDEX
