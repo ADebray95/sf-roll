@@ -18,16 +18,18 @@ The deployed page is **`site/index.html`**. It is generated, never edited by han
 `sf_flat_routes/webapp.py` (`python -m sf_flat_routes site`) from these sources in
 `sf_flat_routes/web/`:
 
-| Built file                           | Source                                                                                            |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------- |
-| `site/index.html`                    | `simple.html`, placeholders filled by `webapp.page_html`                                          |
-| `site/app-<hash>.js`                 | `engine.js`, `format.js`, `search.js`, `simple.js`, concatenated (one classic script, no bundler) |
-| `site/app-<hash>.css`                | `simple.css`                                                                                      |
-| `site/leaflet-<hash>.{js,css}`       | `sf_flat_routes/vendor/leaflet-1.9.4.*`, unmodified                                               |
-| `site/data/graph-<hash>.bin.gz`      | `webgraph.build_payload` + `webgraph.bundle`, plus the place and address index from `places.py`   |
-| `site/data/manifest.json`            | `webapp.build_manifest`: build date, git commit, Overture release, lidar project, counts          |
-| `site/data/hillshade-<hash>.png`     | `places.build_hillshade`, from the lidar DEM                                                      |
-| `site/favicon.svg`, `site/.nojekyll` | written by `webapp.write_site`                                                                    |
+| Built file                                                                  | Source                                                                                            |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `site/index.html`                                                           | `simple.html`, placeholders filled by `webapp.page_html`                                          |
+| `site/app-<hash>.js`                                                        | `engine.js`, `format.js`, `search.js`, `simple.js`, concatenated (one classic script, no bundler) |
+| `site/app-<hash>.css`                                                       | `simple.css`                                                                                      |
+| `site/leaflet-<hash>.{js,css}`                                              | `sf_flat_routes/vendor/leaflet-1.9.4.*`, unmodified                                               |
+| `site/data/graph-<hash>.bin.gz`                                             | `webgraph.build_payload` + `webgraph.bundle`, plus the place and address index from `places.py`   |
+| `site/data/manifest.json`                                                   | `webapp.build_manifest`: build date, git commit, Overture release, lidar project, counts          |
+| `site/data/hillshade-<hash>.png`                                            | `places.build_hillshade`, from the lidar DEM                                                      |
+| `site/favicon.svg`, `site/.nojekyll`                                        | written by `webapp.write_site`                                                                    |
+| `site/manifest.webmanifest`, `site/icon-*.png`, `site/apple-touch-icon.png` | `webapp.web_manifest`, `webapp.app_icon`                                                          |
+| `site/sw.js`                                                                | `web/sw.js` with the build's cache version and file list (`webapp.service_worker`)                |
 
 Every asset name carries a content hash, so a browser holding yesterday's `app.js` cannot run it
 against today's `index.html`. `site/preview.jpg` and `site/robots.txt` are not produced by the
@@ -95,6 +97,16 @@ Node `vm` context (`engine.fixtures.js`).
   (`#r~cap~notch~…` trips, `#l~cap~km~…` loops).
 - The base map is a lidar hillshade image plus the street lines painted from the graph on a canvas.
   The app loads no third-party map tiles.
+
+## Offline and install
+
+The site is a progressive web app: `manifest.webmanifest` makes it installable to the home screen
+(standalone, theme colour, 192/512 px icons and an Apple touch icon), and `sw.js` precaches the
+page, the scripts, the stylesheets, the graph and the hillshade on the first visit. Hashed files
+are served cache-first and the page network-first; each build gets its own cache name and older
+caches are deleted when the new worker activates, so a new graph replaces the old one. After one
+visit, routing, search and loops work with no connection; only the web fonts fall back to system
+fonts. The app has no map tiles to cache.
 
 ## Checks
 

@@ -58,3 +58,33 @@ def test_hillshade_is_bounded_and_flat_ground_is_uniform():
 def test_hillshade_distinguishes_slope_direction():
     ramp = np.tile(np.arange(20.0), (20, 1))  # rises to the east
     assert not np.allclose(hillshade(ramp, res=1.0), hillshade(-ramp, res=1.0))
+
+
+def test_the_web_manifest_is_installable():
+    from sf_flat_routes.webapp import web_manifest
+
+    m = web_manifest()
+    assert m["name"] == "Roll SF" and m["display"] == "standalone"
+    assert m["start_url"] == "./" and m["theme_color"].startswith("#")
+    assert {i["sizes"] for i in m["icons"]} == {"192x192", "512x512"}
+
+
+def test_the_icon_is_a_square_png():
+    import io
+
+    from PIL import Image
+
+    from sf_flat_routes.webapp import app_icon
+
+    im = Image.open(io.BytesIO(app_icon(192)))
+    assert im.format == "PNG" and im.size == (192, 192)
+
+
+def test_the_service_worker_precaches_the_shell_under_the_build_version():
+    from sf_flat_routes.webapp import service_worker
+
+    shell = ["./", "app-abc.js", "data/graph-123.bin.gz"]
+    sw = service_worker(shell, "v42")
+    assert 'const CACHE = "rollsf-v42";' in sw
+    assert 'const SHELL = ["./", "app-abc.js", "data/graph-123.bin.gz"];' in sw
+    assert "__VERSION__" not in sw and "__SHELL__" not in sw

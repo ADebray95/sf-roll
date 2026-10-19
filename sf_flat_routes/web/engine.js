@@ -1498,7 +1498,12 @@ class Graph {
       flattest: last,
       search,
       notches: () => {
-        const found = search.solutions.map((x) => asRoute(x.arcs));
+        // the search already knows each solution's length and climb
+        const found = search.solutions.map((x) => ({
+          arcs: x.arcs,
+          length: x.length,
+          gain: x.gain,
+        }));
         if (!found.length) found.push(first);
         if (!found.some((r) => r.gain <= last.gain + 1e-9)) found.push(last);
         return thinFrontier(found);

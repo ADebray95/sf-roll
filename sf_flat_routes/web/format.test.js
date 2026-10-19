@@ -65,6 +65,9 @@ describe("banners and notes", () => {
     );
     expect(plain(F.infeasibleText(8, 11, [clay, clay, clay]))).toMatch(/\(\+2 other blocks\)\.$/);
     expect(plain(F.infeasibleText(8, 11, [clay, clay]))).toMatch(/\(\+1 other block\)\.$/);
+    expect(plain(F.infeasibleText(8, 10.6, []))).toBe(
+      "No route stays under 8 %. The gentlest route needs 10.6 %.",
+    );
   });
   test("an unnamed path is placed by its nearest corner", () => {
     expect(F.blockName({ street: "", from: "Filbert Street & Kearny Street", to: "" })).toBe(

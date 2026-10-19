@@ -61,14 +61,14 @@ test("2. lowering the cap changes the route or explains why, and the overlay fol
   await settled(page);
   const before = {
     length: await page.locator("#map").getAttribute("data-route-length"),
-    overCap: await page.locator("canvas.streets").getAttribute("data-over-cap"),
+    overCap: await page.locator("canvas.streets-blocked").getAttribute("data-over-cap"),
   };
   await page.locator("#cap").fill("5");
   await expect(page.locator("#cap_v")).toHaveText(/^Max uphill 5\s%$/);
   await expect(page.locator("#cap")).toHaveAttribute("aria-valuetext", "5 percent");
-  await expect(page.locator("canvas.streets")).toHaveAttribute("data-cap", "5");
+  await expect(page.locator("canvas.streets-blocked")).toHaveAttribute("data-cap", "5");
   await settled(page);
-  const overCap = await page.locator("canvas.streets").getAttribute("data-over-cap");
+  const overCap = await page.locator("canvas.streets-blocked").getAttribute("data-over-cap");
   expect(Number(overCap)).toBeGreaterThan(Number(before.overCap));
   const length = await page.locator("#map").getAttribute("data-route-length");
   const banner = await page.locator("#banner").isVisible();
@@ -79,7 +79,7 @@ test("2b. an infeasible trip names the block and offers the cap that works", asy
   await page.goto(STEEP);
   await settled(page);
   await expect(page.locator("#banner_t")).toHaveText(
-    /^No route stays under 8\s%\. The gentlest route needs \d+\s% on .+\.$/,
+    /^No route stays under 8\s%\. The gentlest route needs [\d.]+\s% on .+\.$/,
   );
   const use = page.locator("#usecap");
   await expect(use).toHaveText(/^Use \d+ %$/);
@@ -202,4 +202,35 @@ test("10. no serious or critical accessibility issues", async ({ page }) => {
   const results = await new AxeBuilder({ page }).analyze();
   const bad = results.violations.filter((v) => v.impact === "serious" || v.impact === "critical");
   expect(bad.map((v) => v.id + ": " + v.nodes.map((n) => n.target).join(" "))).toEqual([]);
+});
+
+test("8. after one visit the app loads and routes offline, from the service worker", async ({
+  page,
+  context,
+}) => {
+  await page.goto(TRIP);
+  await settled(page);
+  await page.evaluate(() => navigator.serviceWorker.ready);
+  await page.waitForFunction(async () => {
+    const keys = await caches.keys();
+    for (const k of keys) {
+      const c = await caches.open(k);
+      if ((await c.keys()).some((r) => r.url.includes("/data/graph-"))) return true;
+    }
+    return false;
+  });
+  const fromWorker = [];
+  page.on("response", (r) => {
+    if (r.fromServiceWorker()) fromWorker.push(r.url());
+  });
+  await context.setOffline(true);
+  await page.reload();
+  await settled(page);
+  expect(Number(await page.locator("#map").getAttribute("data-route-arcs"))).toBeGreaterThan(5);
+  expect(fromWorker.some((u) => u.includes("/data/graph-"))).toBe(true);
+  // and a new route, computed offline
+  await page.locator("#cap").fill("6");
+  await page.locator("#cap").dispatchEvent("change");
+  await settled(page);
+  await context.setOffline(false);
 });

@@ -19,8 +19,8 @@ Design notes are in [`docs/architecture.md`](docs/architecture.md).
 
 Roll SF is a fork of [flattensf](https://github.com/almostimplemented/flattensf), built in
 milestones from [`docs/spec.md`](docs/spec.md). Routing under the uphill cap, the trade-off
-slider, loops, offline search, favourites and the infeasible-route explanation work; installing
-to the home screen and full offline support come next.
+slider, loops, offline search, favourites, the infeasible-route explanation, installing to the
+home screen and offline use all work; the scenario trips are being reviewed.
 
 ## Running locally
 

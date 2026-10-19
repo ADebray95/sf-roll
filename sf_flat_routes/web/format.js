@@ -174,13 +174,14 @@ function blockName(block) {
 
 /** The banner when no route stays under the cap (spec 6.3).
  * @param {number} capPct the user's cap
- * @param {number} needPct the smallest cap that works, whole percent
+ * @param {number} needPct the smallest cap that works, in percent (shown to one decimal)
  * @param {Block[]} blocks the shown route's arcs over the cap, steepest first
  * @returns {string}
  */
 function infeasibleText(capPct, needPct, blocks) {
+  const need = Number.isInteger(needPct) ? String(needPct) : needPct.toFixed(1);
   let text =
-    "No route stays under " + capPct + NBSP + "%. The gentlest route needs " + needPct + NBSP + "%";
+    "No route stays under " + capPct + NBSP + "%. The gentlest route needs " + need + NBSP + "%";
   const first = blocks[0];
   if (first) {
     text += " on " + blockName(first);
