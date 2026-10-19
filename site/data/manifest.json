@@ -1,7 +1,7 @@
 {
   "graph": "data/graph-cf0dbe0998.bin.gz",
   "built": "2026-10-19",
-  "git_sha": "87a301add427",
+  "git_sha": "a25396f84c19",
   "overture_release": "2026-08-19.0",
   "lidar_project": "CA_SanFrancisco_B23",
   "nodes": 68539,

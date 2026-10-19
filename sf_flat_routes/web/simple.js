@@ -179,9 +179,13 @@
             (total ? Math.round((100 * got) / total) + "%" : (got / 1e6).toFixed(1) + " MB"),
         );
       });
+      // startup phases, readable with performance.getEntriesByType("mark")
+      performance.mark("rollsf:downloaded");
       const bundle = new Bundle(buf, DATA.manifest);
       const g = (this.graph = new Graph(bundle, DATA.meta));
+      performance.mark("rollsf:graph");
       this.geom = new Geometry(bundle, DATA.meta);
+      performance.mark("rollsf:geometry");
       DATA.bundle = null;
       this.buildEdgeGrades();
       this.projected = projectAll(this.geom);
@@ -193,8 +197,11 @@
         Float32Array.from(routable, (i) => g.nodeLat(i)),
         0.004,
       );
+      performance.mark("rollsf:grids");
       this.index = new PlaceIndex(g, this.geom, bundle, DATA.addr);
+      performance.mark("rollsf:index");
       this.buildMap();
+      performance.mark("rollsf:map");
       // Chrome rasterises a canvas layer from scratch the first time it
       // changes after its first paint, a one-off that would stall the first
       // drag of the cap slider; repainting on the next frame takes it now
@@ -206,6 +213,7 @@
       else this.useGps(true);
       this.renderControls();
       this.recompute(true);
+      performance.mark("rollsf:ready");
       this.registerWorker();
     },
 
@@ -775,6 +783,7 @@
           return;
         }
         need = Math.max(cap + 1, Math.ceil(cStar * 100 - 1e-9));
+        this._needExact = Math.round(cStar * 1000) / 10;
         limit = cStar;
         first = g.route(from.node, to.node, { alpha: 0 }, limit);
       }
@@ -893,7 +902,7 @@
       }
       const cap = this.state.cap;
       const blocks = steepBlocks(this.graph, this.index, this.shown.arcs, cap / 100);
-      $("banner_t").textContent = infeasibleText(cap, r.need, blocks);
+      $("banner_t").textContent = infeasibleText(cap, this._needExact, blocks);
       const use = $("usecap");
       use.hidden = r.need > CAP.max;
       use.dataset.cap = String(r.need);

@@ -2102,13 +2102,14 @@ function blockName(block) {
 
 /** The banner when no route stays under the cap (spec 6.3).
  * @param {number} capPct the user's cap
- * @param {number} needPct the smallest cap that works, whole percent
+ * @param {number} needPct the smallest cap that works, in percent (shown to one decimal)
  * @param {Block[]} blocks the shown route's arcs over the cap, steepest first
  * @returns {string}
  */
 function infeasibleText(capPct, needPct, blocks) {
+  const need = Number.isInteger(needPct) ? String(needPct) : needPct.toFixed(1);
   let text =
-    "No route stays under " + capPct + NBSP + "%. The gentlest route needs " + needPct + NBSP + "%";
+    "No route stays under " + capPct + NBSP + "%. The gentlest route needs " + need + NBSP + "%";
   const first = blocks[0];
   if (first) {
     text += " on " + blockName(first);
@@ -2485,6 +2486,33 @@ class PlaceIndex {
       .filter((n) => n !== street);
   }
 
+  /** The street crossing ``street`` at ``node``, or, when the node is
+   * mid-block, at the nearest corner of ``street``; "" if there is none.
+   * @param {number} node
+   * @param {string} street
+   * @returns {string}
+   */
+  crossNear(node, street) {
+    const here = this.crossStreets(node, street)[0];
+    if (here) return here;
+    const g = this.graph;
+    const lon = g.nodeLon(node),
+      lat = g.nodeLat(node),
+      kx = Math.cos((lat * Math.PI) / 180);
+    const want = normName(street);
+    let best = "",
+      bestD = Infinity;
+    for (const it of this.intersections) {
+      if (!it.parts.includes(want)) continue;
+      const d = ((it.lon - lon) * kx) ** 2 + (it.lat - lat) ** 2;
+      if (d < bestD) {
+        bestD = d;
+        best = it.name.split(" & ").find((n) => n !== street) || "";
+      }
+    }
+    return best;
+  }
+
   /** The street an arc belongs to ("" for an unnamed path).
    * @param {number} arc
    * @returns {string}
@@ -2510,8 +2538,7 @@ class PlaceIndex {
     const tail = g.arcTail(first),
       head = /** @type {number} */ (g.head[last]);
     if (!street) return { street: "", from: this.describe(tail), to: "" };
-    const cross = (/** @type {number} */ node) => this.crossStreets(node, street)[0] || "";
-    return { street, from: cross(tail), to: cross(head) };
+    return { street, from: this.crossNear(tail, street), to: this.crossNear(head, street) };
   }
 
   /** The nearest named corner, for labelling a dropped pin or an unnamed path.
@@ -2897,9 +2924,13 @@ Object.assign(window, {
             (total ? Math.round((100 * got) / total) + "%" : (got / 1e6).toFixed(1) + " MB"),
         );
       });
+      // startup phases, readable with performance.getEntriesByType("mark")
+      performance.mark("rollsf:downloaded");
       const bundle = new Bundle(buf, DATA.manifest);
       const g = (this.graph = new Graph(bundle, DATA.meta));
+      performance.mark("rollsf:graph");
       this.geom = new Geometry(bundle, DATA.meta);
+      performance.mark("rollsf:geometry");
       DATA.bundle = null;
       this.buildEdgeGrades();
       this.projected = projectAll(this.geom);
@@ -2911,8 +2942,11 @@ Object.assign(window, {
         Float32Array.from(routable, (i) => g.nodeLat(i)),
         0.004,
       );
+      performance.mark("rollsf:grids");
       this.index = new PlaceIndex(g, this.geom, bundle, DATA.addr);
+      performance.mark("rollsf:index");
       this.buildMap();
+      performance.mark("rollsf:map");
       // Chrome rasterises a canvas layer from scratch the first time it
       // changes after its first paint, a one-off that would stall the first
       // drag of the cap slider; repainting on the next frame takes it now
@@ -2924,6 +2958,7 @@ Object.assign(window, {
       else this.useGps(true);
       this.renderControls();
       this.recompute(true);
+      performance.mark("rollsf:ready");
       this.registerWorker();
     },
 
@@ -3493,6 +3528,7 @@ Object.assign(window, {
           return;
         }
         need = Math.max(cap + 1, Math.ceil(cStar * 100 - 1e-9));
+        this._needExact = Math.round(cStar * 1000) / 10;
         limit = cStar;
         first = g.route(from.node, to.node, { alpha: 0 }, limit);
       }
@@ -3611,7 +3647,7 @@ Object.assign(window, {
       }
       const cap = this.state.cap;
       const blocks = steepBlocks(this.graph, this.index, this.shown.arcs, cap / 100);
-      $("banner_t").textContent = infeasibleText(cap, r.need, blocks);
+      $("banner_t").textContent = infeasibleText(cap, this._needExact, blocks);
       const use = $("usecap");
       use.hidden = r.need > CAP.max;
       use.dataset.cap = String(r.need);

@@ -9,7 +9,9 @@
 <!--__HEAD_EXTRA__-->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<!-- fonts must not hold up the app: the stylesheet loads as "print" (not
+     render-blocking) and switches to all media once it arrives -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap" media="print" onload="this.media='all'">
 <style>/*__LEAFLET_CSS__*/</style>
 <style>/*__APP_CSS__*/</style>
 </head>

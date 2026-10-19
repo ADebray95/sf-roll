@@ -79,7 +79,7 @@ test("2b. an infeasible trip names the block and offers the cap that works", asy
   await page.goto(STEEP);
   await settled(page);
   await expect(page.locator("#banner_t")).toHaveText(
-    /^No route stays under 8\s%\. The gentlest route needs \d+\s% on .+\.$/,
+    /^No route stays under 8\s%\. The gentlest route needs [\d.]+\s% on .+\.$/,
   );
   const use = page.locator("#usecap");
   await expect(use).toHaveText(/^Use \d+ %$/);

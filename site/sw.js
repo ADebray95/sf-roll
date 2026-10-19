@@ -7,8 +7,8 @@
  * caches are deleted when a new worker activates: that is how a new graph
  * replaces the old one. Map tiles are not involved: the app has none. */
 "use strict";
-const CACHE = "rollsf-3631c2a8bf";
-const SHELL = ["./", "app-69921ae4fc.js", "app-e47f4e7573.css", "leaflet-340720efc3.css", "leaflet-5a640ff863.js", "data/graph-cf0dbe0998.bin.gz", "data/hillshade-5dbd40b03a.png", "manifest.webmanifest", "favicon.svg", "icon-192.png", "icon-512.png", "apple-touch-icon.png"];
+const CACHE = "rollsf-b99870a849";
+const SHELL = ["./", "app-435a8e2f30.js", "app-e47f4e7573.css", "leaflet-340720efc3.css", "leaflet-5a640ff863.js", "data/graph-cf0dbe0998.bin.gz", "data/hillshade-5dbd40b03a.png", "manifest.webmanifest", "favicon.svg", "icon-192.png", "icon-512.png", "apple-touch-icon.png"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(

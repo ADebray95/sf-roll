@@ -190,6 +190,33 @@ class PlaceIndex {
       .filter((n) => n !== street);
   }
 
+  /** The street crossing ``street`` at ``node``, or, when the node is
+   * mid-block, at the nearest corner of ``street``; "" if there is none.
+   * @param {number} node
+   * @param {string} street
+   * @returns {string}
+   */
+  crossNear(node, street) {
+    const here = this.crossStreets(node, street)[0];
+    if (here) return here;
+    const g = this.graph;
+    const lon = g.nodeLon(node),
+      lat = g.nodeLat(node),
+      kx = Math.cos((lat * Math.PI) / 180);
+    const want = normName(street);
+    let best = "",
+      bestD = Infinity;
+    for (const it of this.intersections) {
+      if (!it.parts.includes(want)) continue;
+      const d = ((it.lon - lon) * kx) ** 2 + (it.lat - lat) ** 2;
+      if (d < bestD) {
+        bestD = d;
+        best = it.name.split(" & ").find((n) => n !== street) || "";
+      }
+    }
+    return best;
+  }
+
   /** The street an arc belongs to ("" for an unnamed path).
    * @param {number} arc
    * @returns {string}
@@ -215,8 +242,7 @@ class PlaceIndex {
     const tail = g.arcTail(first),
       head = /** @type {number} */ (g.head[last]);
     if (!street) return { street: "", from: this.describe(tail), to: "" };
-    const cross = (/** @type {number} */ node) => this.crossStreets(node, street)[0] || "";
-    return { street, from: cross(tail), to: cross(head) };
+    return { street, from: this.crossNear(tail, street), to: this.crossNear(head, street) };
   }
 
   /** The nearest named corner, for labelling a dropped pin or an unnamed path.

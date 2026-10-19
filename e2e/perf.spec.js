@@ -26,12 +26,14 @@ test("graph decode, routing and loops are fast enough on a throttled CPU", async
   test.setTimeout(300_000);
   const cdp = await page.context().newCDPSession(page);
   await cdp.send("Emulation.setCPUThrottlingRate", { rate: 4 });
-  const t0 = Date.now();
   await page.goto("/");
-  await page.waitForFunction(() => window.App && App.graph && App.index, undefined, {
+  await page.waitForFunction(() => performance.getEntriesByName("rollsf:ready").length, undefined, {
     timeout: 60_000,
   });
-  const ready = Date.now() - t0;
+  // from navigation start to the app's own ready-to-route mark: page, scripts, graph decode
+  const ready = await page.evaluate(
+    () => performance.getEntriesByName("rollsf:ready")[0].startTime,
+  );
 
   const times = await page.evaluate((scenarios) => {
     const out = { routes: [], loops: [] };
